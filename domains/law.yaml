@@ -1,0 +1,56 @@
+# 法律领域配置
+#
+# ⚠️ **本文件是「现状快照」**：逐项对应 rag-service 当前的硬编码值。
+#    它的作用是证明「配置化没有改变行为」—— 用本配置跑评测，结果必须与改造前完全一致
+#    （17/17、期待来源居首 70.6%、MRR 0.8382）。
+
+domain:
+  key: law
+  display_name: 法律检索
+  language: zh
+  description: >
+    面向法条、问答、咨询对话与判例的多形态检索与有依据回答。
+
+# 形态 key 必须与语料子目录名一致（决定 source 前缀与多路召回的路数）
+forms:
+  - key: docs
+    label: 法条与长文档
+    role: 法律依据，负责条文的准确表述
+  - key: faq
+    label: 问答对
+    role: 直接结论，负责回答"判几年""怎么罚"这类问题
+  - key: dialogues
+    label: 咨询对话
+    role: 用户的真实说法，负责口语化提问的匹配
+  - key: tables
+    label: 结构化判例
+    role: 司法实践，负责案由归类与裁判倾向
+
+collection: law_docs
+
+corpus:
+  root: ./corpus
+  chunk_size: 600
+  chunk_overlap: 80
+  per_form_limit:
+    tables: 10
+    dialogues: 2
+
+prompt:
+  system: |
+    只依据下面材料回答问题；材料中没有的信息就回答"{no_answer}"。
+  no_answer: 材料中未提及
+
+# 法律场景暂不注入免责声明 —— 保持与改造前一致（空列表即"不注入"）
+disclaimers: []
+
+# 安全规则：本领域当前无额外拦截要求（P2 落地时再按需扩展）
+safety:
+  forbidden_claims: []
+  must_refer: []
+  max_plan_delta_per_day: null
+  scope_note: 不提供正式法律意见
+
+eval:
+  golden: evals/golden_questions.json
+  metrics_extra: []

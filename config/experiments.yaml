@@ -1,0 +1,128 @@
+# 实验参数留痕（合法 YAML，可直接被工具读取）
+#
+# 约定：
+#   ① 默认值以代码为准 —— 见 scripts/build_index.py 的 DEFAULTS。
+#      把默认值写在代码里，是为了让仓库 clone 下来即可复现；
+#      只放在环境变量里的参数无法被他人复现。
+#   ② 本文件只放数值与模型名，不写本机路径。
+#   ③ 参与对外对比的指标另见 evals/EVAL_REPORT.md，并须带上 commit SHA。
+#
+# 为什么这样排实验：
+#   · 切分对比放子集 —— 切分参数一变，向量缓存必然失效（块变了 ⇒ 向量必须重算），
+#     全量重建约 11–32 分钟/组；在子集上跑可压到 1–2 分钟/组。
+#   · 索引对比复用缓存 —— 向量不变，只需重建索引并写入，适合多档位扫描。
+#   · 索引对比要有"无差异"的心理准备：当前数据量（约 2 万块）下不同索引参数的延迟
+#     差异可能很小 ⇒ "无差异"本身也是结论，但需要构建耗时/检索延迟/命中率三个维度
+#     的数据支撑，否则只是"没测出来"。
+
+defaults:
+  chunk_size: 600
+  chunk_overlap: 80
+  metric_type: COSINE
+  index_type: ""          # 空字符串 = 使用服务端默认索引
+  index_params: {}
+
+grid:
+  chunking:               # ① 切分策略对比（子集上跑）
+    - {name: baseline, chunk_size: 600, chunk_overlap: 80}
+    - {name: small, chunk_size: 300, chunk_overlap: 60}
+    - {name: large, chunk_size: 800, chunk_overlap: 100}
+
+  index:                  # ② 索引参数对比（复用向量缓存）
+    - {name: default, index_type: "", index_params: {}}
+    - {name: hnsw_m16, index_type: HNSW, index_params: {M: 16, efConstruction: 200}}
+    - {name: hnsw_m32, index_type: HNSW, index_params: {M: 32, efConstruction: 400}}
+    - {name: ivf_flat, index_type: IVF_FLAT, index_params: {nlist: 128}}
+
+# 已跑记录：每次**正式对比实验**追加一条；中间的重构/冒烟验证不记（避免基线混乱）。
+# 字段：date / grid / params / n_chunks / timing_s / hit_rate / commit
+runs:
+  # ── 建库脚本参数化后的首次重建（P0 验证）─────────────────────────────
+  - date: 2026-10-20
+    grid: chunking.baseline
+    params: {chunk_size: 600, chunk_overlap: 80, index_type: "", metric_type: COSINE}
+    collection: law_docs_p0
+    n_chunks: 22900
+    timing_s: {split: 0.5, embed: 442.2, write: 110.1, total: 552.8}
+    hit_rate: 1.0
+    embedding_model: qwen3.7-text-embedding-flash
+    commit: f80923c
+    note: >
+      分形态块数与既有集合逐项一致（docs 4376 / faq 7307 / tables 4475 / dialogues 6742），
+      说明参数化改造未改变切分行为。属冒烟验证，不作为对外基线。
+
+  # ── 检索策略对比：N+1 修复（并发替代串行）───────────────────────────
+  - date: 2026-10-20
+    grid: retrieval
+    params: {mode: multi, per_form: 3, concurrency: 4}
+    collection: law_docs
+    n_chunks: 22900
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.8317, latency_mean_ms: 234.6}
+    commit: 5c96557
+    working_tree: true
+    note: >
+      单查询并发 48.2ms vs 串行 208.8ms（-76.9%），且结果集与串行逐项一致（语义不变）。
+      历史串行基线延迟 392ms 对应 e0c1a0a，环境不同不可直接比。
+
+  # ── 检索策略对比：混合检索（dense + BM25 + 两层 RRF）─────────────────
+  - date: 2026-10-20
+    grid: retrieval
+    params: {mode: hybrid, per_form: 3, fusion: two_layer_rrf, dense_sparse_weight: "1:1"}
+    collection: law_docs
+    n_chunks: 22900
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.7737, latency_mean_ms: 631.1}
+    commit: 5c96557
+    working_tree: true
+    note: >
+      多召回 1 个来源（hit 16 → 17），但截断到同一预算（K=3/5/8/12）后排名**在任何预算下
+      都不如纯向量多路**，K=3/5 时命中率落后 17.6pt ⇒ 默认关闭，保留为可选项。
+      对照：单层 8 路 RRF 更差（top1 47.1%、MRR 0.6536）；给 dense 加权对结果无影响。
+
+  # ── 索引参数对比：4 档（复用向量缓存，同一批块与切分）────────────────
+  # ⚠️ 结论：① 检索质量四档**完全相同**；② 延迟差异 ≤ 同档自身多次运行的波动 ⇒ 测不出差异。
+  #    ⇒ 判据（可复用）：只有「跨档差异 > 同档多次运行的波动」时，性能差异才成立。
+  #    latency_p50_ms 记两次独立运行的值，正是为了体现这条判据。
+  - date: 2026-10-21
+    grid: index.default
+    params: {index_type: "", index_params: {}, metric_type: COSINE}
+    collection: law_docs_idx_default
+    n_chunks: 22900
+    timing_s: {split: 0.5, embed: 0.0, write: 314.1, total: 314.6}
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.8382, latency_p50_ms: [18.5, 17.4]}
+    commit: 887aa03
+    note: >
+      write 314.1s 为服务端开机后的**首次**写入（冷启动），非索引属性；
+      其余三档为 262.7–265.2s。timing 含 insert + 建索引，未拆分（insert 主导约 255s）。
+
+  - date: 2026-10-21
+    grid: index.hnsw_m16
+    params: {index_type: HNSW, index_params: {M: 16, efConstruction: 200}}
+    collection: law_docs_idx_hnsw16
+    n_chunks: 22900
+    timing_s: {split: 0.5, embed: 0.0, write: 265.2, total: 265.8}
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.8382, latency_p50_ms: [18.2, 18.5]}
+    commit: 887aa03
+
+  - date: 2026-10-21
+    grid: index.hnsw_m32
+    params: {index_type: HNSW, index_params: {M: 32, efConstruction: 400}}
+    collection: law_docs_idx_hnsw32
+    n_chunks: 22900
+    timing_s: {split: 0.4, embed: 0.0, write: 262.7, total: 263.1}
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.8382, latency_p50_ms: [17.7, 17.5]}
+    commit: 887aa03
+
+  - date: 2026-10-21
+    grid: index.ivf_flat
+    params: {index_type: IVF_FLAT, index_params: {nlist: 128}}
+    collection: law_docs_idx_ivf
+    n_chunks: 22900
+    timing_s: {split: 0.5, embed: 0.0, write: 264.7, total: 265.1}
+    hit_rate: 1.0
+    metrics: {top1_expected_rate: 0.706, mrr: 0.8382, latency_p50_ms: [17.4, 17.5]}
+    commit: 887aa03

@@ -1,0 +1,24 @@
+# 密钥
+.env
+*.env
+!example.env
+# 运行产物
+logs/
+*.log
+*.db
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+# 大数据（语料/索引，不进仓）
+corpus/
+data/
+# 分词器缓存（jieba 默认写在当前工作目录，会污染工作区）
+jieba.cache
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store# pytest 运行时会创建的临时缓存目录（沙箱下可能无法删除，用忽略处理）
+pytest-cache-files-*/

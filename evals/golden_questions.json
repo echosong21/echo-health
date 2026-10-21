@@ -1,0 +1,151 @@
+[
+  {
+    "id": "D1",
+    "question": "生产经营单位的主要负责人，在安全生产方面承担什么责任？",
+    "form": "docs",
+    "expected_source": ["docs/中华人民共和国安全生产法.md"],
+    "anchor": "安全生产法 第五条",
+    "difficulty": "易"
+  },
+  {
+    "id": "D2",
+    "question": "生产经营单位必须建立哪些安全生产制度？",
+    "form": "docs",
+    "expected_source": ["docs/中华人民共和国安全生产法.md"],
+    "anchor": "安全生产法 第四条",
+    "difficulty": "中"
+  },
+  {
+    "id": "D3",
+    "question": "安全生产工作的方针是什么？",
+    "form": "docs",
+    "expected_source": ["docs/中华人民共和国安全生产法.md"],
+    "anchor": "安全生产法 第三条",
+    "difficulty": "易"
+  },
+  {
+    "id": "D4",
+    "question": "在中华人民共和国领域内从事生产经营活动的单位，安全生产适用什么法律？",
+    "form": "docs",
+    "expected_source": ["docs/中华人民共和国安全生产法.md"],
+    "anchor": "安全生产法 第二条",
+    "difficulty": "易"
+  },
+  {
+    "id": "F1",
+    "question": "偷越国（边）境罪判几年？为参加恐怖活动而偷越的怎么判？",
+    "form": "faq",
+    "expected_source": ["faq/02_刑法常见问题解答_第01部分.md"],
+    "anchor": "刑法第322条（两种量刑）",
+    "difficulty": "易"
+  },
+  {
+    "id": "F2",
+    "question": "运送他人偷越国（边）境，哪些情形会被加重处罚？",
+    "form": "faq",
+    "expected_source": ["faq/02_刑法常见问题解答_第01部分.md"],
+    "anchor": "七年以上；数罪并罚",
+    "difficulty": "中"
+  },
+  {
+    "id": "F3",
+    "question": "商标法第六条规定了什么？",
+    "form": "faq",
+    "expected_source": ["faq/01_法律条文要点问答卡.md"],
+    "anchor": "商标法 第六条",
+    "difficulty": "易"
+  },
+  {
+    "id": "F4",
+    "question": "将他人注册商标作为企业名称中的字号使用，会承担什么后果？",
+    "form": "faq",
+    "expected_source": ["faq/01_法律条文要点问答卡.md"],
+    "anchor": "商标法 第五十八条",
+    "difficulty": "中"
+  },
+  {
+    "id": "C1",
+    "question": "我朋友欠了联通的通信费一直不交，会不会被起诉啊？",
+    "form": "dialogues",
+    "expected_source": ["dialogues/法律咨询对话实录_第01组.md"],
+    "anchor": "通信服务合同纠纷",
+    "difficulty": "易"
+  },
+  {
+    "id": "C2",
+    "question": "订婚后退婚，之前给的彩礼还能要回来吗？",
+    "form": "dialogues",
+    "expected_source": [
+      "dialogues/法律咨询对话实录_第01组.md",
+      "dialogues/法律咨询对话实录_第02组.md"
+    ],
+    "anchor": "婚约财产、彩礼返还",
+    "difficulty": "中"
+  },
+  {
+    "id": "C3",
+    "question": "公司不给我缴社保，合法吗？",
+    "form": "dialogues",
+    "expected_source": ["dialogues/法律咨询对话实录_第01组.md"],
+    "anchor": "社会保险类咨询",
+    "difficulty": "中"
+  },
+  {
+    "id": "T1",
+    "question": "借款合同纠纷在裁判文书里被归到哪一类案由？",
+    "form": "tables",
+    "expected_source": ["tables/01_裁判文书结构化数据.csv"],
+    "anchor": "合同事务 / 借款合同",
+    "difficulty": "中"
+  },
+  {
+    "id": "T2",
+    "question": "追索劳动报酬纠纷属于哪一类案件？",
+    "form": "tables",
+    "expected_source": ["tables/01_裁判文书结构化数据.csv"],
+    "anchor": "劳动人事 / 工资福利",
+    "difficulty": "易"
+  },
+  {
+    "id": "T3",
+    "question": "婚约财产纠纷的裁判文书中，常见关键词有哪些？",
+    "form": "tables",
+    "expected_source": ["tables/01_裁判文书结构化数据.csv"],
+    "anchor": "婚约、彩礼、给付、返还",
+    "difficulty": "难"
+  },
+  {
+    "id": "X1",
+    "question": "订婚后退婚，之前给的彩礼还能要回来吗？",
+    "form": "cross",
+    "expected_source": [
+      "docs/中华人民共和国民法典.md",
+      "faq/",
+      "tables/01_裁判文书结构化数据.csv"
+    ],
+    "anchor": "民法典 第一千零四十二条 + 问答对 + 判例",
+    "difficulty": "难"
+  },
+  {
+    "id": "X2",
+    "question": "生产经营单位的安全生产责任制是如何规定的？",
+    "form": "cross",
+    "expected_source": [
+      "docs/中华人民共和国安全生产法.md",
+      "faq/03_社区安全与犯罪预防问答_第34部分.md"
+    ],
+    "anchor": "安全生产法 第四条 + 社区安全问答",
+    "difficulty": "中"
+  },
+  {
+    "id": "X3",
+    "question": "偷越国（边）境罪判几年？",
+    "form": "cross",
+    "expected_source": [
+      "faq/02_刑法常见问题解答_第01部分.md",
+      "docs/"
+    ],
+    "anchor": "刑法问答 + 刑法条文",
+    "difficulty": "中"
+  }
+]

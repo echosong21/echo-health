@@ -1,0 +1,8 @@
+langchain-core==1.6.3
+langchain-openai==1.6.2
+pymilvus==3.0.2
+pytest==9.1.1
+python-dotenv==1.2.3
+# 稀疏检索（BM25）：jieba 负责中文分词，rank-bm25 负责打分
+jieba==0.42.1
+rank-bm25==0.2.2

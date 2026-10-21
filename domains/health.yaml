@@ -1,0 +1,72 @@
+# 健康领域配置（EchoHealth）
+#
+# ⚠️ 定位：本文件用于**证明"配置可驱动检索链路"**，不追求健康领域完整。
+#    健康语料属后续规划（Q41），不占本周期。
+#
+# ⚠️ 与能力层的边界：
+#    - 这里只有"领域知识"（形态名/提示词/免责声明/安全规则）
+#    - 模型、端点、密钥、Milvus 地址**都不在这里**（它们属 .env 部署环境）
+
+domain:
+  key: health
+  display_name: EchoHealth
+  language: zh
+  description: >
+    在明确的安全边界内，为个人动态重排每日健康行动计划。
+
+# 形态：健康的"数据形态"与法律不同 —— 这是换领域时**必改**的部分
+forms:
+  - key: guides
+    label: 健康指南
+    role: 权威依据（饮食/运动/作息的通用原则）
+  - key: faq
+    label: 常见问答
+    role: 直接答案
+  - key: dialogues
+    label: 用户记录
+    role: 用户的真实说法与约束
+  - key: tables
+    label: 结构化记录
+    role: 数值（热量/营养素/体重等）
+
+collection: echo_health_v1
+
+corpus:
+  root: ./corpus
+  chunk_size: 600
+  chunk_overlap: 80
+  per_form_limit:
+    tables: 10
+    dialogues: 2
+
+prompt:
+  system: |
+    只依据下面材料回答问题；材料中没有的信息就回答"{no_answer}"。
+    不做医疗诊断，不给用药剂量建议。
+  no_answer: 材料中未提及
+
+# 免责声明：**强制注入**（Q41 L2082）；能力层不允许省略
+disclaimers:
+  - text: 本内容仅供健康行动参考，不构成医疗诊断或治疗建议。
+    position: prepend
+  - text: 如出现不适或异常指标，请及时就医。
+    position: append
+
+# 安全规则：P2 才实现，P1 只保证可读出
+safety:
+  forbidden_claims:
+    - 可以治愈
+    - 替代药物
+    - 无需就医
+  must_refer:
+    - when: 提到胸痛、呼吸困难、意识改变
+      action: 建议立即就医
+  max_plan_delta_per_day: 2
+  scope_note: 不处理急症，不做用药剂量建议
+
+eval:
+  golden: evals/golden_questions.json
+  metrics_extra:
+    - 热量误差
+    - 过敏原漏报
+    - 禁忌命中
