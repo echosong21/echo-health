@@ -29,7 +29,7 @@ forms:
     label: 结构化记录
     role: 数值（热量/营养素/体重等）
 
-collection: echo_health_v1
+collection: echo_health_v2
 
 corpus:
   root: ./corpus
