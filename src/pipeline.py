@@ -2,7 +2,6 @@ import argparse
 import sys,time
 from datetime import datetime
 from pathlib import Path
-import observe
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(encoding="utf-8")
@@ -12,6 +11,8 @@ from pymilvus import MilvusClient
 from config import settings
 from src import retrieval as rt
 from src import domain as domain_mod
+from src import observe
+from src.safety import rules as safety_rules
 
 try:
     _DOMAIN = domain_mod.load()
@@ -41,18 +42,47 @@ def _get_bm25_bundle():
         _bm25_bundle = (bm25, docs, form_index)
     return _bm25_bundle
 
-emb = OpenAIEmbeddings(
-    model=settings.EMBED_MODEL,
-    base_url=settings.EMBED_BASE_URL,
-    api_key=settings.API_KEY,
-    check_embedding_ctx_length=False
-)
-llm = ChatOpenAI(
-    model=settings.MODEL,
-    base_url=settings.BASE_URL.removesuffix("/chat/completions"),
-    api_key=settings.API_KEY
-)
-client = MilvusClient(uri=settings.MILVUS_URL)
+# ── 懒加载：模块导入时**不**建立任何运行时连接 ──────────────────────
+# ⚠️ 原先在模块级直接构造 OpenAIEmbeddings / ChatOpenAI / MilvusClient，
+#    导致 `import src.pipeline` 立刻校验配置并建连接 —— 没有 .env 时直接报
+#    ValidationError，模块根本无法被导入（也就无法被单测覆盖）。
+#    ⇒ 改为首次使用时构造：导入零副作用，缺配置时在调用处报错，位置更准确。
+_emb = None
+_llm = None
+_client = None
+
+
+def get_emb():
+    """OpenAIEmbeddings 单例（首次调用时创建）。"""
+    global _emb
+    if _emb is None:
+        _emb = OpenAIEmbeddings(
+            model=settings.EMBED_MODEL,
+            base_url=settings.EMBED_BASE_URL,
+            api_key=settings.API_KEY,
+            check_embedding_ctx_length=False,
+        )
+    return _emb
+
+
+def get_llm():
+    """ChatOpenAI 单例（首次调用时创建）。"""
+    global _llm
+    if _llm is None:
+        _llm = ChatOpenAI(
+            model=settings.MODEL,
+            base_url=settings.BASE_URL.removesuffix("/chat/completions"),
+            api_key=settings.API_KEY,
+        )
+    return _llm
+
+
+def get_client():
+    """MilvusClient 单例（首次调用时创建）。"""
+    global _client
+    if _client is None:
+        _client = MilvusClient(uri=settings.MILVUS_URL)
+    return _client
 
 # 拼装模板（能力层固定）：只负责把「领域提示词 + 材料 + 问题」拼起来。
 # 领域提示词本身来自 domains/*.yaml 的 prompt.system，不写在这里。
@@ -85,11 +115,11 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
     status, error = "ok", None
     try:
         t0 = time.perf_counter()
-        qvec = emb.embed_query(question)
+        qvec = get_emb().embed_query(question)
         stage_ms["embed_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         t0 = time.perf_counter()
-        hits = client.search(collection_name=COLLECTION, data=[qvec],
+        hits = get_client().search(collection_name=COLLECTION, data=[qvec],
                              limit=top_k,
                              output_fields=["text", "source", "chunk_index"])[0]
         stage_ms["search_ms"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -103,7 +133,7 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         if contexts:                                                # ← 空上下文保护
             materials = "\n\n".join(f"[{i+1}] 来源：{c['source']}\n{c['text']}"
                                     for i, c in enumerate(contexts))
-            resp = llm.invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
+            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -127,8 +157,11 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         logger.info("trace=%s status=%s top_k=%s min_score=%s n_raw=%s n_kept=%s stage_ms=%s cost=%.6f元",
                     trace_id, status, top_k, min_score, len(raw), len(contexts), stage_ms, cost)
 
-    return {"answer": _finalize_answer(answer), "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
-            "top_k": top_k, "min_score": min_score, "n_raw": len(raw)}
+    _safe = safety_rules.apply_all(question, _finalize_answer(answer), _DOMAIN)
+    return {"answer": _safe["final_answer"], "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
+            "top_k": top_k, "min_score": min_score, "n_raw": len(raw),
+            "safety": {"input": _safe["input"].action,
+                       "output": _safe["output"].action if _safe["output"] else None}}
 FORMS = domain_mod.form_keys(_DOMAIN)   # 来自领域配置；检索逻辑在 src/retrieval.py
 def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                     top_k: int = 3, hybrid: bool = False) -> dict:
@@ -143,12 +176,12 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
     status, error = "ok", None
     try:
         t0 = time.perf_counter()
-        qvec = emb.embed_query(question)
+        qvec = get_emb().embed_query(question)
         stage_ms["embed_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         t0 = time.perf_counter()
         if hybrid:
-            raw, stage = rt.retrieve_hybrid(client, qvec, question, COLLECTION,
+            raw, stage = rt.retrieve_hybrid(get_client(), qvec, question, COLLECTION,
                                             per_form, _get_bm25_bundle())
             stage_ms["search_ms"] = round(
                 stage["dense_ms"] + stage["sparse_ms"] + stage["fuse_ms"], 1)
@@ -161,7 +194,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
             # 按形态并发召回，替代原来的 4 次串行请求：
             # 语义完全不变（仍是每形态各 per_form 条），只是不再等待叠加。
             merged, per_form_ms, wall_ms = rt.retrieve_dense_multi(
-                client, qvec, COLLECTION, per_form)
+                get_client(), qvec, COLLECTION, per_form)
             stage_ms["search_ms"] = wall_ms
             stage_ms["search_per_form_ms"] = per_form_ms
             raw = sorted(merged, key=lambda c: c["score"], reverse=True)
@@ -171,7 +204,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
             materials = "\n\n".join(
                 f"[{i + 1}] 来源：{c['source']}\n{c['text']}" for i, c in enumerate(contexts)
             )
-            resp = llm.invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
+            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -196,9 +229,12 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                     trace_id, status, per_form, "hybrid" if hybrid else "multi",
                     min_score, len(raw), len(contexts), stage_ms, cost)
 
-    return {"answer": _finalize_answer(answer), "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
+    _safe = safety_rules.apply_all(question, _finalize_answer(answer), _DOMAIN)
+    return {"answer": _safe["final_answer"], "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
             "per_form": per_form, "mode": "hybrid" if hybrid else "multi",
-            "min_score": min_score, "n_raw": len(raw)}
+            "min_score": min_score, "n_raw": len(raw),
+            "safety": {"input": _safe["input"].action,
+                       "output": _safe["output"].action if _safe["output"] else None}}
 
 
 if __name__ == "__main__":
