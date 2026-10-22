@@ -22,3 +22,9 @@ jieba.cache
 .vscode/
 .DS_Store# pytest 运行时会创建的临时缓存目录（沙箱下可能无法删除，用忽略处理）
 pytest-cache-files-*/
+
+# 语料来源清单与下载记录（内部资料，不入仓）
+_sources/
+
+# 下载暂存区（原始数据，转换后不保留）
+_staging/

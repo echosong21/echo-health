@@ -36,8 +36,10 @@ corpus:
   chunk_size: 600
   chunk_overlap: 80
   per_form_limit:
-    tables: 10
-    dialogues: 2
+    # 每形态「文件数」上限（不是块数）。null = 不截断，全量入索引。
+    # 依据：tables 每份仅 20–40 行，全进也无妨；dialogues 单份较长，限量以控制块数。
+    tables: null
+    dialogues: 60
 
 prompt:
   system: |
