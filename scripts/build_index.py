@@ -35,7 +35,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from config import settings  # noqa: E402
+def get_settings():
+    """延迟加载配置对象。
+
+    为什么不在模块级 `from config import settings`：
+    那样会在 **import 时**就构造配置，缺少 `.env`（CI 环境、全新 clone、
+    或只是跑一下 `--help`）会直接抛异常，连参数帮助都看不到。
+    改成函数后，只有真正需要 embedding / Milvus 的代码路径才加载配置。
+    """
+    from config import settings as _settings  # noqa: PLC0415
+
+    return _settings
 
 # ── 默认参数（写在代码里 ⇒ clone 即可复现）────────────────────────────
 DEFAULTS = {
@@ -125,6 +135,7 @@ def build_items(
 
 def embed_items(items: list[dict], batch: int) -> list[list[float]]:
     """分批向量化，带进度与 ETA（百炼单批上限 20）。"""
+    settings = get_settings()          # 懒加载：只有真要跑 embedding 时才需要配置
     emb = OpenAIEmbeddings(
         model=settings.EMBED_MODEL,
         base_url=settings.EMBED_BASE_URL,
@@ -176,6 +187,7 @@ def write_to_milvus(
 ) -> None:
     from pymilvus import MilvusClient
 
+    settings = get_settings()          # 懒加载：只有真要写 Milvus 时才需要配置
     client = MilvusClient(uri=settings.MILVUS_URL)
     print(f"[3] Milvus 已连接：{settings.MILVUS_URL}｜"
           f"version = {client.get_server_version()}")
@@ -250,10 +262,16 @@ def parse_per_form_limit(raw: list[str]) -> dict[str, int]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="建库：语料 → 切分 → 向量 → Milvus")
     ap.add_argument("--corpus", required=True, help="语料根目录（其子目录名即形态标签）")
-    ap.add_argument("--collection", default=settings.COLLECTION
-                    if hasattr(settings, "COLLECTION") else "law_docs")
-    ap.add_argument("--chunk-size", type=int, default=DEFAULTS["chunk_size"])
-    ap.add_argument("--chunk-overlap", type=int, default=DEFAULTS["chunk_overlap"])
+    ap.add_argument("--domain", default="",
+                    help="领域配置名（如 health）。指定后从 domains/<name>.yaml 读取 "
+                         "collection / chunk_size / chunk_overlap / per_form_limit；"
+                         "命令行上显式给出的值优先于配置文件")
+    ap.add_argument("--collection", default="",
+                    help="集合名；留空则取 --domain 配置，再退回 settings.COLLECTION")
+    # ⚠️ 默认值必须为 None，否则无法区分「用户没传」和「用户传了等于默认的值」，
+    #    那样 --domain 里的 chunk_size 就永远被 argparse 的默认值盖掉。
+    ap.add_argument("--chunk-size", type=int, default=None)
+    ap.add_argument("--chunk-overlap", type=int, default=None)
     ap.add_argument("--metric-type", default=DEFAULTS["metric_type"])
     ap.add_argument("--index-type", default=DEFAULTS["index_type"],
                     help="索引类型（如 HNSW / IVF_FLAT）；留空则用服务端默认索引")
@@ -273,23 +291,69 @@ def main() -> int:
     corpus = Path(args.corpus).resolve()
     only = [f.strip() for f in args.forms.split(",") if f.strip()] or None
     forms = discover_forms(corpus, only)
-    per_form_limit = parse_per_form_limit(args.per_form_limit)
     index_params = json.loads(args.index_params) if args.index_params else {}
+
+    # ── 领域配置 → 补齐未显式传入的参数 ────────────────────────
+    # 优先级：命令行 > domains/<name>.yaml > DEFAULTS
+    domain_cfg: dict = {}
+    if args.domain:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from src.domain import load as _load_domain  # noqa: PLC0415
+
+        domain_cfg = _load_domain(args.domain)
+    domain_corpus: dict = domain_cfg.get("corpus") or {}
+    _source: dict[str, str] = {}
+
+    def _resolve(cli_value, cfg_key: str, default, label: str):
+        """返回 (值, 来源说明)。命令行显式给出时优先。"""
+        if cli_value is not None:
+            return cli_value, "命令行"
+        if cfg_key in domain_corpus and domain_corpus[cfg_key] is not None:
+            return domain_corpus[cfg_key], f"{args.domain}.yaml"
+        return default, "默认值"
+
+    chunk_size, _source["chunk_size"] = _resolve(
+        args.chunk_size, "chunk_size", DEFAULTS["chunk_size"], "chunk_size")
+    chunk_overlap, _source["chunk_overlap"] = _resolve(
+        args.chunk_overlap, "chunk_overlap", DEFAULTS["chunk_overlap"], "chunk_overlap")
+    # 到这里说明要真正干活了（--help 已在 argparse 阶段退出），此时才需要配置。
+    settings = get_settings()
+    if args.collection:
+        collection, _source["collection"] = args.collection, "命令行"
+    elif domain_cfg.get("collection"):
+        collection, _source["collection"] = domain_cfg["collection"], f"{args.domain}.yaml"
+    elif hasattr(settings, "COLLECTION"):
+        collection, _source["collection"] = settings.COLLECTION, "settings"
+    else:
+        collection, _source["collection"] = "law_docs", "默认值"
+
+    # per_form_limit：yaml 打底，命令行逐形态覆盖
+    per_form_limit = dict(domain_corpus.get("per_form_limit") or {})
+    _pfl_source = f"{args.domain}.yaml" if per_form_limit else ""
+    _cli_limits = parse_per_form_limit(args.per_form_limit)
+    if _cli_limits:
+        per_form_limit.update(_cli_limits)
+        _pfl_source = (_pfl_source + " + 命令行") if _pfl_source else "命令行"
+
     extensions = (
         {"." + e.strip().lstrip(".").lower() for e in args.extensions.split(",") if e.strip()}
         if args.extensions else None
     )
 
     print(f"语料目录：{corpus}")
-    print(f"形态：{forms}｜每形态文件上限：{per_form_limit or '不限'}")
-    print(f"切分：chunk_size={args.chunk_size} chunk_overlap={args.chunk_overlap}")
+    if args.domain:
+        print(f"领域配置：domains/{args.domain}.yaml")
+    print(f"形态：{forms}")
+    print(f"每形态文件上限：{per_form_limit or '不限'}"
+          + (f"（来源：{_pfl_source}）" if _pfl_source else ""))
+    print(f"切分：chunk_size={chunk_size}（{_source['chunk_size']}）"
+          f" chunk_overlap={chunk_overlap}（{_source['chunk_overlap']}）")
+    print(f"集合：{collection}（{_source['collection']}）")
     print(f"embedding 模型：{settings.EMBED_MODEL}")
     print(f"索引：{args.index_type or '服务端默认'}｜params={index_params or {}}")
     print()
 
-    items = build_items(
-        corpus, forms, per_form_limit, args.chunk_size, args.chunk_overlap, extensions
-    )
+    items = build_items(corpus, forms, per_form_limit, chunk_size, chunk_overlap, extensions)
     if not items:
         raise SystemExit("没有可入库的块（检查语料目录与 --forms）")
     print(f"[1] 语料合计：{len(items)} 块\n")
@@ -301,7 +365,7 @@ def main() -> int:
         return 0
 
     write_to_milvus(
-        collection=args.collection,
+        collection=collection,
         dim=len(vectors[0]),
         metric_type=args.metric_type,
         index_type=args.index_type,
