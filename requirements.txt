@@ -1,5 +1,8 @@
 langchain-core==1.6.3
 langchain-openai==1.6.2
+# 建库脚本用它做递归字符切分（scripts/build_index.py）。
+# 2026-10-23 补：此前缺失，但因为没有测试 import 建库脚本，CI 一直没暴露。
+langchain-text-splitters==1.1.2
 pymilvus==3.0.2
 pytest==9.1.1
 python-dotenv==1.2.3
