@@ -15,7 +15,6 @@
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -25,15 +24,18 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "build_index.py"
 
-# 遗留说明：最初 `build_index.py` 在模块级 `from config import settings`，
-# 导致缺少 .env 时连 `--help` 都抛异常（CI 因此失败）。
-# 现已改为 `get_settings()` 懒加载；这里仍然只给一份最小 env，
-# 是为了让测试在任何机器上行为一致 —— 不依赖开发者本机恰好存在的 .env。
-_MIN_ENV = {
-    "PATH": os.environ.get("PATH", ""),
-    "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),      # Windows 下 subprocess 需要
-    "PYTHONIOENCODING": "utf-8",
-}
+# 关于环境变量：这里**刻意不自定义 `env`**，让子进程继承父环境。
+#
+# 曾经写过一版 `_MIN_ENV = {PATH, SYSTEMROOT, PYTHONIOENCODING}`，本意是
+# 「模拟干净环境，验证 --help 不依赖 .env」。但那是基于错误假设的：
+# 当时以为 CI 失败是因为缺 HOME 之类的变量，后来看日志才发现真因是
+# **requirements.txt 缺 langchain-text-splitters**（见 TROUBLESHOOTING.md 第 2 条）。
+#
+# 教训：人为裁剪子进程环境，会把「缺依赖」这类问题伪装成「环境问题」，
+# 反而干扰定位。而且裁剪过度（如去掉 HOME/TMPDIR）可能让第三方库 import 失败，
+# 制造与真实 CI 无关的假失败。
+# 「不依赖 .env」这个需求由 test_settings_is_lazily_imported 的静态检查保证，
+# 不需要靠篡改环境来实现。
 
 
 def _run_help() -> str:
@@ -41,7 +43,6 @@ def _run_help() -> str:
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
         capture_output=True, text=True, encoding="utf-8", timeout=60,
-        env=_MIN_ENV,          # 刻意不带 .env 里的变量，模拟干净环境
         cwd=str(REPO),
     )
     assert out.returncode == 0, f"--help 失败（退出码 {out.returncode}）：{out.stderr}"
