@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,14 +25,26 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "build_index.py"
 
+# 遗留说明：最初 `build_index.py` 在模块级 `from config import settings`，
+# 导致缺少 .env 时连 `--help` 都抛异常（CI 因此失败）。
+# 现已改为 `get_settings()` 懒加载；这里仍然只给一份最小 env，
+# 是为了让测试在任何机器上行为一致 —— 不依赖开发者本机恰好存在的 .env。
+_MIN_ENV = {
+    "PATH": os.environ.get("PATH", ""),
+    "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),      # Windows 下 subprocess 需要
+    "PYTHONIOENCODING": "utf-8",
+}
+
 
 def _run_help() -> str:
     """跑 --help，拿 argparse 的 usage 与参数说明（不触发任何网络/embedding）。"""
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
         capture_output=True, text=True, encoding="utf-8", timeout=60,
+        env=_MIN_ENV,          # 刻意不带 .env 里的变量，模拟干净环境
+        cwd=str(REPO),
     )
-    assert out.returncode == 0, f"--help 失败：{out.stderr}"
+    assert out.returncode == 0, f"--help 失败（退出码 {out.returncode}）：{out.stderr}"
     return out.stdout
 
 

@@ -35,7 +35,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from config import settings  # noqa: E402
+def get_settings():
+    """延迟加载配置对象。
+
+    为什么不在模块级 `from config import settings`：
+    那样会在 **import 时**就构造配置，缺少 `.env`（CI 环境、全新 clone、
+    或只是跑一下 `--help`）会直接抛异常，连参数帮助都看不到。
+    改成函数后，只有真正需要 embedding / Milvus 的代码路径才加载配置。
+    """
+    from config import settings as _settings  # noqa: PLC0415
+
+    return _settings
 
 # ── 默认参数（写在代码里 ⇒ clone 即可复现）────────────────────────────
 DEFAULTS = {
@@ -125,6 +135,7 @@ def build_items(
 
 def embed_items(items: list[dict], batch: int) -> list[list[float]]:
     """分批向量化，带进度与 ETA（百炼单批上限 20）。"""
+    settings = get_settings()          # 懒加载：只有真要跑 embedding 时才需要配置
     emb = OpenAIEmbeddings(
         model=settings.EMBED_MODEL,
         base_url=settings.EMBED_BASE_URL,
@@ -176,6 +187,7 @@ def write_to_milvus(
 ) -> None:
     from pymilvus import MilvusClient
 
+    settings = get_settings()          # 懒加载：只有真要写 Milvus 时才需要配置
     client = MilvusClient(uri=settings.MILVUS_URL)
     print(f"[3] Milvus 已连接：{settings.MILVUS_URL}｜"
           f"version = {client.get_server_version()}")
@@ -304,6 +316,8 @@ def main() -> int:
         args.chunk_size, "chunk_size", DEFAULTS["chunk_size"], "chunk_size")
     chunk_overlap, _source["chunk_overlap"] = _resolve(
         args.chunk_overlap, "chunk_overlap", DEFAULTS["chunk_overlap"], "chunk_overlap")
+    # 到这里说明要真正干活了（--help 已在 argparse 阶段退出），此时才需要配置。
+    settings = get_settings()
     if args.collection:
         collection, _source["collection"] = args.collection, "命令行"
     elif domain_cfg.get("collection"):
