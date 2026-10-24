@@ -22,6 +22,8 @@ jieba.cache
 .vscode/
 .DS_Store# pytest 运行时会创建的临时缓存目录（沙箱下可能无法删除，用忽略处理）
 pytest-cache-files-*/
+# 测试用的项目内临时目录（避开 %TEMP% 的 ACL 锁定问题，见 tests/conftest.py）
+.pytest_tmp/
 
 # 语料来源清单与下载记录（内部资料，不入仓）
 _sources/
