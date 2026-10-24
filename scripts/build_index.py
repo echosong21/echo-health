@@ -358,11 +358,32 @@ def main() -> int:
         raise SystemExit("没有可入库的块（检查语料目录与 --forms）")
     print(f"[1] 语料合计：{len(items)} 块\n")
 
-    vectors = embed_items(items, args.embed_batch)
+    # 先探活、再 embedding。
+    # 2026-10-24 实测教训：原顺序是「先把全部块送进 embedding → 再连 Milvus」，
+    # 隧道断开时照样烧掉整轮 API 调用（1114 块／32s），最后才在连库处失败。
+    # 注：pymilvus 是函数内导入的（与 write_to_milvus 一致，避免 import 即建连）。
+    try:
+        from pymilvus import MilvusClient as _MilvusClient
+
+        _MilvusClient(uri=settings.MILVUS_URL).list_collections()
+    except ImportError as exc:
+        raise SystemExit(f"[!] 缺少依赖：{exc}\n    ⇒ pip install -r requirements.txt")
+    except Exception as exc:  # noqa: BLE001
+        msg = (
+            f"[!] Milvus 不可达（{settings.MILVUS_URL}）：{type(exc).__name__}\n"
+            "    若是 ECS 上的实例，先建 SSH 隧道：\n"
+            "      ssh -L 19530:127.0.0.1:19530 root@<公网IP>\n"
+        )
+        if not args.dry_run:
+            raise SystemExit(msg + "    ⇒ 未开始 embedding，未消耗 API 调用")
+        print(msg + "    ⇒ dry-run 继续（正式跑会失败）\n")
+        return 0
 
     if args.dry_run:
-        print("[3] --dry-run：跳过 Milvus 写入与自检")
+        print("[3] --dry-run：跳过 embedding、Milvus 写入与自检")
         return 0
+
+    vectors = embed_items(items, args.embed_batch)
 
     write_to_milvus(
         collection=collection,
