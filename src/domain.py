@@ -31,8 +31,17 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DOMAINS_DIR = ROOT / "domains"
 
-# 领域未指定时的默认值 —— 与 rag-service 现状保持一致，保证行为不回归
-DEFAULT_KEY = os.getenv("DOMAIN", "law")
+def default_key() -> str:
+    """领域未指定时的默认值 —— 与既有服务保持一致，保证行为不回归。
+
+    ⚠️ 刻意写成**函数**而不是模块级常量：
+
+        模块级常量在 import 时就把环境变量固化了，测试里
+        `monkeypatch.setenv("DOMAIN", ...)` 对已导入的模块无效 ——
+        只能改进程环境后重启，等于切不了领域。
+        改成函数后每次调用都重新读，测试才能自由切换。
+    """
+    return os.getenv("DOMAIN", "law")
 
 # 允许的免责声明注入位置
 VALID_POSITIONS = ("prepend", "append")
@@ -55,7 +64,7 @@ def load(key: str | None = None) -> dict:
     `key` 省略时取环境变量 `DOMAIN`（默认 `law`）。
     返回已完成默认值填充的 dict；任何缺失或非法都抛 `DomainConfigError`。
     """
-    key = key or DEFAULT_KEY
+    key = key or default_key()
     path = DOMAINS_DIR / f"{key}.yaml"
     if not path.exists():
         available = ", ".join(list_domains()) or "（domains/ 下没有任何 yaml）"

@@ -3,24 +3,52 @@ import sys,time
 from datetime import datetime
 from pathlib import Path
 
+# `python src/pipeline.py` 直接运行时，sys.path[0] 是 src/，找不到 config 包 ——
+# 所以这行必须留在模块级（下面的 `from config import settings` 依赖它）。
+# pytest 侧由 pytest.ini 的 `pythonpath = .` 覆盖，不依赖这行；
+# 重复插入只是一个无害的重复项。
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-sys.stdout.reconfigure(encoding="utf-8")
 
-from langchain_openai import ChatOpenAI,OpenAIEmbeddings
-from pymilvus import MilvusClient
+# ⚠️ 重型依赖（langchain_openai / pymilvus）**刻意不在模块级导入**：
+#    它们只在 get_emb / get_llm / get_client 里按需导入，
+#    这样「只想测 domain / safety 逻辑」的环境不必安装它们。
+#    （输出编码 reconfigure 也移到 `__main__`，避免 import 时改全局 stdout。）
 from config import settings
 from src import retrieval as rt
 from src import domain as domain_mod
 from src import observe
 from src.safety import rules as safety_rules
 
-try:
-    _DOMAIN = domain_mod.load()
-except Exception as exc:  # noqa: BLE001
-    raise RuntimeError(f"领域配置加载失败（检查 domains/*.yaml）：{exc}") from exc
+_domain: dict | None = None
 
-# ⚠️ 集合名来自领域配置 —— 换领域时本文件无需改动
-COLLECTION = _DOMAIN["collection"]
+
+def get_domain() -> dict:
+    """领域配置（首次调用时加载并校验）。
+
+    ⚠️ 改成懒加载的理由：
+
+        原实现在**模块级**执行 `domain_mod.load()` 并校验，于是
+        `import src.pipeline` 就会去读 `domains/*.yaml`；缺 yaml 时抛
+        `RuntimeError`，**整个模块无法导入** —— 连带 `domain` / `safety`
+        的单测也无法被 pytest 收集。
+
+        懒加载后：导入零副作用，缺配置在真正用到时才报错、位置更准确
+        （与 `get_emb` / `get_llm` / `get_client` 保持同一风格）。
+    """
+    global _domain
+    if _domain is None:
+        try:
+            _domain = domain_mod.load()
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"领域配置加载失败（检查 domains/*.yaml）：{exc}"
+            ) from exc
+    return _domain
+
+
+def get_collection() -> str:
+    """当前领域的集合名（换领域时本文件无需改动）。"""
+    return get_domain()["collection"]
 
 # ── BM25 索引懒加载 ──────────────────────────────────────────────────
 # 只有混合检索模式才需要；懒加载避免其他模式白等约 2 秒的索引加载。
@@ -56,6 +84,8 @@ def get_emb():
     """OpenAIEmbeddings 单例（首次调用时创建）。"""
     global _emb
     if _emb is None:
+        from langchain_openai import OpenAIEmbeddings  # 函数内导入，见文件头说明
+
         _emb = OpenAIEmbeddings(
             model=settings.EMBED_MODEL,
             base_url=settings.EMBED_BASE_URL,
@@ -69,6 +99,8 @@ def get_llm():
     """ChatOpenAI 单例（首次调用时创建）。"""
     global _llm
     if _llm is None:
+        from langchain_openai import ChatOpenAI  # 函数内导入，见文件头说明
+
         _llm = ChatOpenAI(
             model=settings.MODEL,
             base_url=settings.BASE_URL.removesuffix("/chat/completions"),
@@ -81,6 +113,8 @@ def get_client():
     """MilvusClient 单例（首次调用时创建）。"""
     global _client
     if _client is None:
+        from pymilvus import MilvusClient  # 函数内导入，见文件头说明
+
         _client = MilvusClient(uri=settings.MILVUS_URL)
     return _client
 
@@ -103,8 +137,8 @@ def _finalize_answer(answer: str | None) -> str | None:
     """
     if answer is None:
         return None
-    pre = domain_mod.disclaimer_texts(_DOMAIN, "prepend")
-    app = domain_mod.disclaimer_texts(_DOMAIN, "append")
+    pre = domain_mod.disclaimer_texts(get_domain(), "prepend")
+    app = domain_mod.disclaimer_texts(get_domain(), "append")
     parts = [*pre, answer, *app]
     return "\n\n".join(parts) if (pre or app) else answer
 logger = observe.setup_logging()
@@ -119,7 +153,7 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         stage_ms["embed_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         t0 = time.perf_counter()
-        hits = get_client().search(collection_name=COLLECTION, data=[qvec],
+        hits = get_client().search(collection_name=get_collection(), data=[qvec],
                              limit=top_k,
                              output_fields=["text", "source", "chunk_index"])[0]
         stage_ms["search_ms"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -133,7 +167,7 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         if contexts:                                                # ← 空上下文保护
             materials = "\n\n".join(f"[{i+1}] 来源：{c['source']}\n{c['text']}"
                                     for i, c in enumerate(contexts))
-            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
+            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(get_domain()), contexts=materials, question=question))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -157,12 +191,13 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         logger.info("trace=%s status=%s top_k=%s min_score=%s n_raw=%s n_kept=%s stage_ms=%s cost=%.6f元",
                     trace_id, status, top_k, min_score, len(raw), len(contexts), stage_ms, cost)
 
-    _safe = safety_rules.apply_all(question, _finalize_answer(answer), _DOMAIN)
+    _safe = safety_rules.apply_all(question, _finalize_answer(answer), get_domain())
     return {"answer": _safe["final_answer"], "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
             "top_k": top_k, "min_score": min_score, "n_raw": len(raw),
             "safety": {"input": _safe["input"].action,
                        "output": _safe["output"].action if _safe["output"] else None}}
-FORMS = domain_mod.form_keys(_DOMAIN)   # 来自领域配置；检索逻辑在 src/retrieval.py
+
+
 def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                     top_k: int = 3, hybrid: bool = False) -> dict:
     """按形态多路召回：每个形态各取 per_form 条，合并后统一过滤/生成。
@@ -181,7 +216,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
 
         t0 = time.perf_counter()
         if hybrid:
-            raw, stage = rt.retrieve_hybrid(get_client(), qvec, question, COLLECTION,
+            raw, stage = rt.retrieve_hybrid(get_client(), qvec, question, get_collection(),
                                             per_form, _get_bm25_bundle())
             stage_ms["search_ms"] = round(
                 stage["dense_ms"] + stage["sparse_ms"] + stage["fuse_ms"], 1)
@@ -194,7 +229,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
             # 按形态并发召回，替代原来的 4 次串行请求：
             # 语义完全不变（仍是每形态各 per_form 条），只是不再等待叠加。
             merged, per_form_ms, wall_ms = rt.retrieve_dense_multi(
-                get_client(), qvec, COLLECTION, per_form)
+                get_client(), qvec, get_collection(), per_form)
             stage_ms["search_ms"] = wall_ms
             stage_ms["search_per_form_ms"] = per_form_ms
             raw = sorted(merged, key=lambda c: c["score"], reverse=True)
@@ -204,7 +239,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
             materials = "\n\n".join(
                 f"[{i + 1}] 来源：{c['source']}\n{c['text']}" for i, c in enumerate(contexts)
             )
-            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(_DOMAIN), contexts=materials, question=question))
+            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(get_domain()), contexts=materials, question=question))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -229,7 +264,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                     trace_id, status, per_form, "hybrid" if hybrid else "multi",
                     min_score, len(raw), len(contexts), stage_ms, cost)
 
-    _safe = safety_rules.apply_all(question, _finalize_answer(answer), _DOMAIN)
+    _safe = safety_rules.apply_all(question, _finalize_answer(answer), get_domain())
     return {"answer": _safe["final_answer"], "contexts": contexts, "usage": usage, "stage_ms": stage_ms,
             "per_form": per_form, "mode": "hybrid" if hybrid else "multi",
             "min_score": min_score, "n_raw": len(raw),
@@ -238,6 +273,9 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
 
 
 if __name__ == "__main__":
+    # 只在 CLI 直接运行时改输出编码 —— 放在模块级会污染 import 本模块的进程。
+    sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="RAG 查询（可调参实验）")
     parser.add_argument("-q", "--question", default="生产经营单位的安全生产责任制是如何规定的？")
     parser.add_argument("--top-k", type=int, default=3)

@@ -31,13 +31,26 @@ from src import fusion as fusion_mod  # noqa: E402
 from src import domain as domain_mod  # noqa: E402
 
 
+_forms_cache: list[str] | None = None
+
+
 def _form_keys() -> list[str]:
-    """当前领域的形态列表（来自 `domains/*.yaml`，能力层不写死）。"""
-    return domain_mod.form_keys(domain_mod.load())
+    """当前领域的形态列表（来自 `domains/*.yaml`，能力层不写死）。
 
+    ⚠️ 原先是模块级 `FORMS = _form_keys()`，而它同时被当作**函数默认参数**：
 
-# 兼容既有引用；真实取值由当前领域配置决定（DOMAIN 环境变量，默认 law）
-FORMS = _form_keys()
+        def retrieve_dense_multi(..., forms: list[str] = FORMS)
+
+    Python 的默认参数在**函数定义时**求值，所以 `FORMS` 必须在 import 阶段
+    就有值 —— 这迫使整个领域配置在模块级加载（`import` 即读盘 + 校验）。
+
+    改成「惰性 + 缓存」后：import 不再触碰 `domains/`，首次真正调用才加载，
+    且只加载一次（领域配置在进程生命周期内不变）。
+    """
+    global _forms_cache
+    if _forms_cache is None:
+        _forms_cache = domain_mod.form_keys(domain_mod.load())
+    return _forms_cache
 
 # 形态内融合时两路的权重。
 #
@@ -84,7 +97,7 @@ def retrieve_dense_single(client, qvec, collection: str, top_k: int) -> tuple[li
 
 def retrieve_dense_multi(
     client, qvec, collection: str, per_form: int,
-    forms: list[str] = FORMS, max_workers: int = 4,
+    forms: list[str] | None = None, max_workers: int = 4,
 ) -> tuple[list[dict], dict, float]:
     """按形态多路向量召回 —— **并发**。
 
@@ -93,6 +106,8 @@ def retrieve_dense_multi(
 
     返回 `(merged, per_form_ms, wall_ms)`。
     """
+    forms = _form_keys() if forms is None else forms
+
     def one(form: str):
         t = time.perf_counter()
         hits = client.search(
@@ -117,7 +132,7 @@ def retrieve_dense_multi(
 
 def retrieve_hybrid(
     client, qvec, query: str, collection: str, per_form: int,
-    bm25_bundle: tuple, forms: list[str] = FORMS,
+    bm25_bundle: tuple, forms: list[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """混合检索：向量（并发）+ 稀疏（BM25）→ RRF 融合。
 
@@ -127,6 +142,7 @@ def retrieve_hybrid(
     **三段必须分开记录**，否则无法判断混合检索把时间花在了哪里。
     """
     bm25, items, form_index = bm25_bundle
+    forms = _form_keys() if forms is None else forms
     stage: dict[str, float] = {}
 
     dense, per_form_ms, wall_ms = retrieve_dense_multi(client, qvec, collection, per_form, forms)
