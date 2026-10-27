@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-27",
+  "params": {
+    "top_k": 5,
+    "min_score": 0.7,
+    "mode": "multi",
+    "per_form": 3,
+    "embed_model": "qwen3.7-text-embedding-flash",
+    "collection": "law_docs"
+  },
+  "n_questions": 17,
+  "verdicts": {
+    "hit": 7,
+    "miss": 8,
+    "partial": 2
+  },
+  "overall_hit_rate": 0.5294,
+  "by_form_hit_rate": {
+    "cross": 0.6667,
+    "dialogues": 0.6667,
+    "docs": 0.5,
+    "faq": 0.75,
+    "tables": 0.0
+  },
+  "latency_ms": {
+    "mean": 232.2,
+    "max": 525.3
+  },
+  "top1_expected_rate": 0.4706,
+  "mrr": 0.9444
+}
