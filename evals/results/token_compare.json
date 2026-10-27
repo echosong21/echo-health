@@ -1,0 +1,238 @@
+{
+  "thresholds": [
+    0.0,
+    0.5
+  ],
+  "by_min_score": {
+    "0.0": [
+      {
+        "id": "D1",
+        "n_ctx": 12,
+        "in_tok": 3564,
+        "out_tok": 616
+      },
+      {
+        "id": "D2",
+        "n_ctx": 12,
+        "in_tok": 3648,
+        "out_tok": 133
+      },
+      {
+        "id": "D3",
+        "n_ctx": 12,
+        "in_tok": 3291,
+        "out_tok": 50
+      },
+      {
+        "id": "D4",
+        "n_ctx": 12,
+        "in_tok": 3276,
+        "out_tok": 124
+      },
+      {
+        "id": "F1",
+        "n_ctx": 12,
+        "in_tok": 3549,
+        "out_tok": 151
+      },
+      {
+        "id": "F2",
+        "n_ctx": 12,
+        "in_tok": 3707,
+        "out_tok": 199
+      },
+      {
+        "id": "F3",
+        "n_ctx": 12,
+        "in_tok": 3323,
+        "out_tok": 94
+      },
+      {
+        "id": "F4",
+        "n_ctx": 12,
+        "in_tok": 3755,
+        "out_tok": 236
+      },
+      {
+        "id": "C1",
+        "n_ctx": 12,
+        "in_tok": 3829,
+        "out_tok": 192
+      },
+      {
+        "id": "C2",
+        "n_ctx": 12,
+        "in_tok": 4032,
+        "out_tok": 367
+      },
+      {
+        "id": "C3",
+        "n_ctx": 12,
+        "in_tok": 3576,
+        "out_tok": 160
+      },
+      {
+        "id": "T1",
+        "n_ctx": 12,
+        "in_tok": 3988,
+        "out_tok": 355
+      },
+      {
+        "id": "T2",
+        "n_ctx": 12,
+        "in_tok": 3956,
+        "out_tok": 128
+      },
+      {
+        "id": "T3",
+        "n_ctx": 12,
+        "in_tok": 4023,
+        "out_tok": 140
+      },
+      {
+        "id": "X1",
+        "n_ctx": 12,
+        "in_tok": 4032,
+        "out_tok": 655
+      },
+      {
+        "id": "X2",
+        "n_ctx": 12,
+        "in_tok": 3403,
+        "out_tok": 200
+      },
+      {
+        "id": "X3",
+        "n_ctx": 12,
+        "in_tok": 3507,
+        "out_tok": 235
+      }
+    ],
+    "0.5": [
+      {
+        "id": "D1",
+        "n_ctx": 6,
+        "in_tok": 1551,
+        "out_tok": 226
+      },
+      {
+        "id": "D2",
+        "n_ctx": 6,
+        "in_tok": 1598,
+        "out_tok": 860
+      },
+      {
+        "id": "D3",
+        "n_ctx": 6,
+        "in_tok": 1420,
+        "out_tok": 37
+      },
+      {
+        "id": "D4",
+        "n_ctx": 6,
+        "in_tok": 1396,
+        "out_tok": 64
+      },
+      {
+        "id": "F1",
+        "n_ctx": 6,
+        "in_tok": 1615,
+        "out_tok": 172
+      },
+      {
+        "id": "F2",
+        "n_ctx": 6,
+        "in_tok": 1717,
+        "out_tok": 271
+      },
+      {
+        "id": "F3",
+        "n_ctx": 7,
+        "in_tok": 1878,
+        "out_tok": 105
+      },
+      {
+        "id": "F4",
+        "n_ctx": 7,
+        "in_tok": 2019,
+        "out_tok": 125
+      },
+      {
+        "id": "C1",
+        "n_ctx": 3,
+        "in_tok": 1148,
+        "out_tok": 96
+      },
+      {
+        "id": "C2",
+        "n_ctx": 4,
+        "in_tok": 1490,
+        "out_tok": 235
+      },
+      {
+        "id": "C3",
+        "n_ctx": 6,
+        "in_tok": 1772,
+        "out_tok": 109
+      },
+      {
+        "id": "T1",
+        "n_ctx": 6,
+        "in_tok": 2171,
+        "out_tok": 80
+      },
+      {
+        "id": "T2",
+        "n_ctx": 8,
+        "in_tok": 2724,
+        "out_tok": 334
+      },
+      {
+        "id": "T3",
+        "n_ctx": 6,
+        "in_tok": 2223,
+        "out_tok": 257
+      },
+      {
+        "id": "X1",
+        "n_ctx": 4,
+        "in_tok": 1490,
+        "out_tok": 200
+      },
+      {
+        "id": "X2",
+        "n_ctx": 6,
+        "in_tok": 1543,
+        "out_tok": 290
+      },
+      {
+        "id": "X3",
+        "n_ctx": 4,
+        "in_tok": 889,
+        "out_tok": 299
+      }
+    ]
+  },
+  "summary": [
+    {
+      "min_score": 0.0,
+      "n_ok": 17,
+      "n_failed": 0,
+      "ctx_mean": 12.0,
+      "in_mean": 3674.0588235294117,
+      "out_mean": 237.35294117647058,
+      "in_total": 62459,
+      "out_total": 4035
+    },
+    {
+      "min_score": 0.5,
+      "n_ok": 17,
+      "n_failed": 0,
+      "ctx_mean": 5.705882352941177,
+      "in_mean": 1684.9411764705883,
+      "out_mean": 221.1764705882353,
+      "in_total": 28644,
+      "out_total": 3760
+    }
+  ]
+}
