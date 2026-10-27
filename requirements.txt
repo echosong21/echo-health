@@ -9,3 +9,13 @@ python-dotenv==1.2.3
 # 稀疏检索（BM25）：jieba 负责中文分词，rank-bm25 负责打分
 jieba==0.42.1
 rank-bm25==0.2.2
+
+# HTTP 层（src/api.py）。2026-10-27 补：
+# 此前 tests/test_api.py 直接 import fastapi，但依赖没进清单 ——
+# 本地因为已装所以跑绿，CI 在干净环境里立刻失败。
+# 教训：新增 import 必须同步依赖清单，否则「本地能过」是假象。
+fastapi==0.141.1
+httpx==0.28.1
+# uvicorn 只在真正起服务时需要（uvicorn src.api:app）；CI 不启动服务，
+# 但部署需要，所以一并声明。
+uvicorn==0.52.4
