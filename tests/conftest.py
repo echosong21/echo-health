@@ -28,13 +28,55 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+# ── 自动隔离：所有测试都不许写真实 logs/ ──────────────────────────
+#
+# **为什么需要 autouse，而不是"每个测试自觉申请"**
+#
+# 原先有两个污染源叠加，让 `logs/traces.jsonl` 里 41% 的记录来自测试
+# （`usage=null`、`cost=0`、`status=error`）：
+#
+#   1. `observe.TRACE_FILE` 是模块级常量 —— 下面那个显式夹具能重定向它，
+#      但**只有声明了 `tmp_trace_file` 参数的测试才用得上**。
+#      后来新写的 API / 失败路径测试没声明，于是直接写进了真实文件。
+#   2. `pipelines.py` 在**模块级**调用 `observe.setup_logging()` ——
+#      只要 import 到 pipeline（测试必然 import），就会创建指向真实
+#      `logs/app_YYYY-MM-DD.log` 的 FileHandler。
+#
+# 教训：**隔离不该依赖每个测试作者记得申请**。忘一个就静默污染，
+# 而且污染不会自己暴露 —— 这次是靠成本报表「41% 无 usage」才发现的。
+#
+# ⚠️ 文件名刻意与 `tmp_trace_file` 区分（`_autouse_` 前缀），
+# 避免两个夹具写到同一个文件上互相覆盖。
+@pytest.fixture(autouse=True)
+def _isolate_observe(monkeypatch):
+    """重定向 trace 文件，并摘掉指向真实 logs/ 的文件 handler。"""
+    import logging
+
+    from src import observe
+
+    tmp_dir = ROOT / ".pytest_tmp"
+    tmp_dir.mkdir(exist_ok=True)
+    target = tmp_dir / "_autouse_traces.jsonl"
+    target.write_text("", encoding="utf-8")
+    monkeypatch.setattr(observe, "TRACE_FILE", target)
+
+    # 摘掉真实文件 handler；保留控制台 handler，否则排查时看不到输出
+    rag_logger = logging.getLogger("rag")
+    for handler in list(rag_logger.handlers):
+        if isinstance(handler, logging.FileHandler):
+            rag_logger.removeHandler(handler)
+            handler.close()
+
+    yield target
+
+
 # ── 夹具：临时 trace 文件 ──────────────────────────────────────────
 @pytest.fixture
 def tmp_trace_file(monkeypatch):
     """把 `observe.TRACE_FILE` 重定向到项目内临时目录，返回该路径。
 
-    observe 用的是模块级常量，`write_trace` 每次读取它，
-    所以 monkeypatch 属性即可重定向，**不需要改 observe 的实现**。
+    与 autouse 的 `_isolate_observe` 分工：那个保证**默认不污染**，
+    这个给**需要断言日志内容**的测试用（返回可读路径）。
 
     ⚠️ **刻意不用 pytest 的 `tmp_path`**：本机 `%TEMP%\\pytest-of-*`
     存在 ACL 锁定（`PermissionError: [WinError 5]`），`tmp_path` 在该环境
