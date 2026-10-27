@@ -155,12 +155,20 @@ def run_one(item, mode, per_form, collection):
 
 
 def main():
+    global MIN_SCORE
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["single", "multi", "hybrid"], default="single")
     p.add_argument("--per-form", type=int, default=PER_FORM)
+    p.add_argument(
+        "--min-score", type=float, default=MIN_SCORE,
+        help="相似度阈值：低于此值的候选不进上下文。默认 0.0 = 不过滤。"
+             "调高它能直接减少送入 LLM 的 token（生成阶段占总延迟 85%%），"
+             "但可能丢掉「分低却是答案来源」的候选 —— 必须跑一遍看 top-1 是否回退。",
+    )
     p.add_argument("--collection", default=COLLECTION,
                    help="要评测的集合名（默认 law_docs）；换集合用于切分/索引对比实验")
     args = p.parse_args()
+    MIN_SCORE = args.min_score
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     mode = args.mode
     per_form = args.per_form
