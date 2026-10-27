@@ -113,6 +113,46 @@ python src/pipeline.py -q "米饭每100克含多少热量？"
 
 `build_index.py` 支持 `--dry-run`（只做切分与统计，**不调用 embedding**，也不写库）。
 
+### 6.1 HTTP 服务（可选，需 `fastapi` + `uvicorn`）
+
+```bash
+uvicorn src.api:app --reload
+```
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/health` | GET | 返回 `collection` 与 `num_entities` |
+| `/query` | POST | 单路检索 + 生成 |
+| `/query_multi` | POST | 多形态并发召回 + 生成（可选 `?hybrid=true`） |
+
+**状态码语义分开**（不是一个 500 打天下）：
+
+| 码 | 何时 |
+|---|---|
+| 200 | 正常 |
+| **400** | 语义无效（`question` 全空白或超长） |
+| **422** | 请求体不合 schema（如 `top_k=0`） |
+| **500** | 内部错误（检索/生成抛异常） |
+| **503** | 依赖不可用（`/health` 探不到 Milvus） |
+
+**为什么 `/health` 要回 `collection` + `num_entities`**：只回 `{"status":"ok"}`
+无法区分「服务活着但索引空了」，而这两种状态对调用方的意义完全不同。
+
+**成本与延迟口径**（真实请求统计）：
+
+| 指标 | 值 |
+|---|---|
+| 单次成本 p50 | ¥0.0020 |
+| 单次成本 p95 | ¥0.0738 |
+| 超 ¥0.01 的请求占比 | 6.9% |
+
+> p95 是 p50 的 **37 倍** —— 成本分布极度右偏，少数长回答吞掉大部分预算。
+> 延迟上**生成阶段占 85.4%**、检索只占 **1.9%**，所以优化检索对用户感知几乎无感。
+
+```bash
+python scripts/cost_report.py   # 从 logs/traces.jsonl 生成完整成本报表
+```
+
 ---
 
 ## 七、领域配置（`domains/*.yaml`）
