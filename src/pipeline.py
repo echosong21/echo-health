@@ -141,6 +141,24 @@ def _render_memory(mem: dict | None, max_episodes: int = MEMORY_EPISODE_WINDOW) 
     """把记忆渲染成 prompt 片段。
 
     **空记忆必须返回空字符串** —— 这是 `_build_prompt` 保持字节级兼容的前提。
+
+    ⚠️ **这里的措辞是实测调出来的，三轮迭代才定下来。**
+
+    第一轮「近期对话：」→ 模型回答「材料中未提及」，把历史当背景噪音忽略。
+    第二轮「【对话历史】（用于理解指代…）」→ 仍然无效。
+    加 system prompt 豁免（`domains/health.yaml`）→ 仍然无效。
+
+    第三轮才发现真正的开关是**否定措辞**：
+      · `【用户提供的说明 · 非检索结果】` → ❌ 模型完全忽略（"非检索结果"＝不能用）
+      · `【用户提供的说明】`            → ✅ 模型主动使用（提到高血压、钠）
+
+    同一份数据，标题里多三个字「非检索结果」，模型行为从"用"变成"不用"。
+
+    **⇒ 教训：不要用否定措辞描述你希望模型使用的东西。**
+      给 LLM 的上下文里，负面表述会被当作指令执行，而不是当作背景说明。
+
+    **⇒ 另一个教训：把记忆塞进 prompt 和让模型用上记忆是两件事。**
+      前者是字符串拼接，后者要跟既有的回答约束与语言习惯谈判。
     """
     if not mem:
         return ""
@@ -149,11 +167,15 @@ def _render_memory(mem: dict | None, max_episodes: int = MEMORY_EPISODE_WINDOW) 
     if not facts and not episodes:
         return ""
 
-    lines: list[str] = []
+    # ⚠️ 标题必须是中性的。不要写"非检索结果""不可引用"这类否定表述 ——
+    #    实测会让模型直接忽略整块内容。
+    lines: list[str] = ["【用户提供的说明】"]
     if facts:
-        lines.append("已知的用户情况：" + "；".join(f"{k}={v}" for k, v in facts.items()))
+        lines.append("[0] 来源：用户自述")
+        lines.append("；".join(f"{k}={v}" for k, v in facts.items()))
     if episodes:
-        lines.append("近期对话：")
+        if not facts:
+            lines.append("[0] 来源：用户自述（上一轮对话）")
         lines.extend(f"- {e['role']}: {e['text']}" for e in episodes)
     return "\n".join(lines)
 
