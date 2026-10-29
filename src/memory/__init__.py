@@ -1,3 +1,4 @@
+import threading
 """记忆层。
 
 **分层**（四档制 L1 的硬要求）：
@@ -46,23 +47,33 @@ def get_store(log=None) -> "MemoryStore":
     惰性是为了**不在 import 时建连接** —— 这是本仓既有的纪律
     （`pipelines.py` 的模块级 `setup_logging` 就是反例，后来修掉了）。
     没有 PG 时 import 这个包不应该报错。
+
+    **加锁的原因**：FastAPI 是并发的。如果两个请求同时首次调用这里，
+    都会看到 `_store is None` 并各自建一个 `PgMemoryStore`（每个带一个
+    ConnectionPool）—— 后者覆盖前者，前者那份连接池**永远泄漏**。
+    单机跑几百次请求不会发现，但它是真实存在的资源泄漏。
+    用 double-check：绝大多数调用只读一次 `_store`，不进锁。
     """
     global _store
     if _store is None:
-        from .pg_store import PgMemoryStore
+        with _LOCK:
+            if _store is None:                      # double-check
+                from .pg_store import PgMemoryStore
 
-        _store = PgMemoryStore(log=log)
+                _store = PgMemoryStore(log=log)
     return _store
 
 
 _store: "MemoryStore | None" = None
+_LOCK = threading.Lock()
 
 
 def reset_store() -> None:
     """测试用：清掉单例，让下一个 `get_store()` 重新建连接。"""
     global _store
-    if _store is not None:
-        close = getattr(_store, "close", None)
-        if callable(close):
-            close()
-    _store = None
+    with _LOCK:
+        if _store is not None:
+            close = getattr(_store, "close", None)
+            if callable(close):
+                close()
+        _store = None
