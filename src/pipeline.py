@@ -118,15 +118,85 @@ def get_client():
         _client = MilvusClient(uri=settings.MILVUS_URL)
     return _client
 
-# 拼装模板（能力层固定）：只负责把「领域提示词 + 材料 + 问题」拼起来。
+# ── 提示词拼装（能力层固定）────────────────────────────────────────
+#
 # 领域提示词本身来自 domains/*.yaml 的 prompt.system，不写在这里。
-PROMPT_TMPL = """{system}
+#
+# ⚠️ **为什么用函数拼而不是 str.format 模板**
+#
+# 原实现是 `PROMPT_TMPL.format(system=..., contexts=..., question=...)`。
+# 加记忆时最自然的想法是模板里加一个 `{memory_block}` 槽位 —— **那是错的**：
+#   · 槽位为空时，模板里的定界换行**仍然存在**
+#   · 槽位非空时，渲染出来的记忆块又自带换行
+# 两种情况换行数对不齐，结果是「无记忆时多一个空行」或「有记忆时少一个换行」。
+# 这类偏差肉眼极难发现，但会让 EVAL_REPORT 的历史指标（17/17、70.6%、0.8284）
+# 失去可比性 —— 那些数字是拿旧 prompt 跑出来的。
+#
+# 所以改成**条件拼接**：只有 memory_block 非空时才插入，其余字节原样不动。
 
-材料：
-{contexts}
+MEMORY_EPISODE_WINDOW = 6   # 渲染进 prompt 的最近条数（约 3 轮）
 
-问题：{question}
-"""
+
+def _render_memory(mem: dict | None, max_episodes: int = MEMORY_EPISODE_WINDOW) -> str:
+    """把记忆渲染成 prompt 片段。
+
+    **空记忆必须返回空字符串** —— 这是 `_build_prompt` 保持字节级兼容的前提。
+    """
+    if not mem:
+        return ""
+    facts = mem.get("facts") or {}
+    episodes = (mem.get("episodes") or [])[-max_episodes:]
+    if not facts and not episodes:
+        return ""
+
+    lines: list[str] = []
+    if facts:
+        lines.append("已知的用户情况：" + "；".join(f"{k}={v}" for k, v in facts.items()))
+    if episodes:
+        lines.append("近期对话：")
+        lines.extend(f"- {e['role']}: {e['text']}" for e in episodes)
+    return "\n".join(lines)
+
+
+def _build_prompt(system: str, contexts: str, question: str, memory_block: str = "") -> str:
+    """组装最终 prompt。
+
+    ⚠️ **`memory_block` 为空时，输出必须与改造前逐字节相同**：
+
+        'SYS\\n\\n材料：\\nCTX\\n\\n问题：Q\\n'
+
+    这条由 `tests/test_memory.py::test_no_memory_prompt_is_byte_identical` 守住。
+    """
+    head = system
+    if memory_block:
+        head += f"\n\n{memory_block}"
+    return f"{head}\n\n材料：\n{contexts}\n\n问题：{question}\n"
+
+
+def _load_memory_block(session_id: str | None) -> str:
+    """读记忆并渲染。**任何异常都折成空串** —— 记忆失败不能让问答失败。"""
+    if not session_id:
+        return ""
+    try:
+        from src.memory import get_store
+
+        return _render_memory(get_store().read(session_id=session_id))
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+def _save_turns(session_id: str | None, question: str, answer: str | None) -> None:
+    """把这一轮写进记忆。**失败静默**，且空回答不写（会污染下一轮上下文）。"""
+    if not session_id or not answer:
+        return
+    try:
+        from src.memory import get_store
+
+        store = get_store()
+        store.write(session_id=session_id, role="user", text=question)
+        store.write(session_id=session_id, role="assistant", text=answer)
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def _finalize_answer(answer: str | None) -> str | None:
@@ -142,11 +212,17 @@ def _finalize_answer(answer: str | None) -> str | None:
     parts = [*pre, answer, *app]
     return "\n\n".join(parts) if (pre or app) else answer
 logger = observe.setup_logging()
-def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
-    """min_score=0.0 ⇒ 不过滤，行为与改造前完全一致"""
+def rag_query(question: str, top_k: int = 3, min_score: float = 0.0,
+              session_id: str | None = None) -> dict:
+    """min_score=0.0 ⇒ 不过滤，行为与改造前完全一致。
+
+    `session_id` 非空时才读写记忆；为 None 时**不碰记忆层**，
+    prompt 与改造前逐字节相同（见 `_build_prompt` 的说明）。
+    """
     stage_ms, contexts, usage, answer, raw = {}, [], None, None, []
     trace_id = observe.new_trace_id()
     status, error = "ok", None
+    memory_block = _load_memory_block(session_id)
     try:
         t0 = time.perf_counter()
         qvec = get_emb().embed_query(question)
@@ -167,7 +243,9 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         if contexts:                                                # ← 空上下文保护
             materials = "\n\n".join(f"[{i+1}] 来源：{c['source']}\n{c['text']}"
                                     for i, c in enumerate(contexts))
-            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(get_domain()), contexts=materials, question=question))
+            resp = get_llm().invoke(_build_prompt(
+                system=domain_mod.system_prompt(get_domain()),
+                contexts=materials, question=question, memory_block=memory_block))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -178,6 +256,7 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
         logger.exception("trace=%s 失败：%s", trace_id, e)
         raise
     finally:
+        _save_turns(session_id, question, answer)
         cost = observe.calc_cost(usage)
         span = observe.build_retrieval_span(contexts, raw_n=len(raw))
         observe.write_trace({
@@ -199,16 +278,20 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0) -> dict:
 
 
 def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
-                    top_k: int = 3, hybrid: bool = False) -> dict:
+                    top_k: int = 3, hybrid: bool = False,
+                    session_id: str | None = None) -> dict:
     """按形态多路召回：每个形态各取 per_form 条，合并后统一过滤/生成。
 
     `hybrid=True` 时额外走 BM25 稀疏召回并做 RRF 融合。
     ⚠️ 默认 **False**：实测混合检索的排名质量不如纯向量多路，且延迟约 2.7 倍
     （详见 `DESIGN.md` 第 9 节）。
+
+    `session_id` 非空时才读写记忆；为 None 时 prompt 与改造前逐字节相同。
     """
     stage_ms, contexts, usage, answer, raw = {}, [], None, None, []
     trace_id = observe.new_trace_id()
     status, error = "ok", None
+    memory_block = _load_memory_block(session_id)
     try:
         t0 = time.perf_counter()
         qvec = get_emb().embed_query(question)
@@ -239,7 +322,9 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
             materials = "\n\n".join(
                 f"[{i + 1}] 来源：{c['source']}\n{c['text']}" for i, c in enumerate(contexts)
             )
-            resp = get_llm().invoke(PROMPT_TMPL.format(system=domain_mod.system_prompt(get_domain()), contexts=materials, question=question))
+            resp = get_llm().invoke(_build_prompt(
+                system=domain_mod.system_prompt(get_domain()),
+                contexts=materials, question=question, memory_block=memory_block))
             answer, usage = resp.content, resp.usage_metadata
         else:
             answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
@@ -249,6 +334,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
         logger.exception("trace=%s 失败：%s", trace_id, e)
         raise
     finally:
+        _save_turns(session_id, question, answer)
         cost = observe.calc_cost(usage)
         span = observe.build_retrieval_span(contexts, raw_n=len(raw))
         observe.write_trace({
