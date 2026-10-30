@@ -39,6 +39,9 @@ __all__ = [
     "MAX_TEXT_LENGTH",
     "MAX_TURNS_PER_SESSION",
     "MemoryStore",
+    "get_store",
+    "remember",
+    "reset_store",
 ]
 
 
@@ -78,3 +81,40 @@ def reset_store() -> None:
             if callable(close):
                 close()
         _store = None
+
+
+def remember(
+    key: str,
+    value: str,
+    *,
+    evidence: str | None = None,
+    user_id: str = DEFAULT_USER_ID,
+    log=None,
+) -> bool:
+    """登记一条稳定事实。**这是语义记忆唯一的写入口。**
+
+    **为什么是显式函数而不是自动抽取**
+
+    「从对话里提取事实」没有客观对错标准 —— 同一段对话，不同人可能抽出
+    不同事实，同一人两次运行结果也可能不同。**无法写成断言就等于无法验证。**
+
+    更实际的问题是猜错的代价不对称：「漏记」只是少一点上下文，
+    「记错」会让后续所有建议基于错误前提。健康领域尤其明显 ——
+    把「我爸有高血压」误判成「用户本人有高血压」，之后每条饮食建议都是错的。
+
+    **所以宁可让用户多打一行字，也不让模型去猜。**
+
+    返回：
+        True  写入成功
+        False 存储不可达、达条数上限、或任何异常（**不抛**）
+
+    为什么失败不抛：记忆是增强项。用户已经拿到了回答，记不记下来是次要的 ——
+    见模块 docstring 的「故障语义」。
+    """
+    try:
+        store = get_store(log=log)
+        return store.upsert_fact(key, value, user_id=user_id, evidence=evidence)
+    except Exception as exc:                            # noqa: BLE001
+        if log is not None:
+            log.warning("remember(%s) 失败: %s", key, exc)
+        return False

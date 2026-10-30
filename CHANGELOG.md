@@ -7,6 +7,55 @@
 
 ---
 
+## [0.5.0] — 2026-10-30
+
+### 新增
+
+- **分层记忆**（`src/memory/`）—— 情景 / 语义两层，PostgreSQL 存储：
+  - `base.py`：`MemoryStore` Protocol，**只有 `read` / `write` 两个方法**
+  - `pg_store.py`：连接池、rolling 裁剪、facts 扁平 KV
+  - `scripts/schema_memory.sql`：`episodes` / `facts` 两张表
+  - `memory/README.md`：三行边界、四类限制值、部署前必改项
+- **语义记忆写入口**（`src/memory/__init__.py` 的 `remember()`）——
+  显式登记事实（过敏 / 忌口 / 慢性病 / 目标），**不做模型自动抽取**：
+  抽取不可判定（无法写成断言），且猜错的代价远大于不记
+- **多轮上下文**（`src/pipeline.py`）—— `rag_query` / `rag_query_multi`
+  新增 `session_id` 与 `user_id`，默认值下行为与改造前完全一致
+- **跨 session 端到端验收**（`scripts/verify_memory_e2e.py`）——
+  两部分：同会话两轮（情景）＋ 跨会话事实（语义），带无记忆对照组
+- **评测支持指定金标集**（`evals/run_eval.py` 的 `--golden`）——
+  原先路径写死在模块常量里，只有一份 law 的 17 题
+- **健康域冒烟基线**（`evals/health_smoke.json`）—— 10 条，覆盖
+  guides / faq / tables / dialogues 四形态 + 跨形态
+
+### 变更
+
+- `rag_query` / `rag_query_multi` 的 `user_id` 默认空串，空时回落 `DEFAULT_USER_ID`。
+  补这个参数之前，`remember()` 用别 uid 写入的事实**在问答时读不到** ——
+  写端和读端用了不同的用户身份，单用户场景测不出来，一换用户就全面失效
+- `DESIGN.md` 新增「分层记忆」节（四块齐全，含三轮措辞实验与可判定切换条件）
+
+### 修复
+
+- **`src/memory/__init__.py` 的模块 docstring 失效** —— `import threading`
+  被放在文件第一行，挡在 docstring 前面，Python 只把第一个字符串字面量当
+  docstring，所以 `help(src.memory)` 之前看不到任何说明
+- **公开仓内的内部编号与框架术语**（10 处）—— 注释与 docstring 里残留了
+  内部任务编号、评估框架名称与时段概念，这些不属于公开仓库。同时修了泄露
+  扫描工具的两个缺陷：规则表缺 5 类；**扫单个文件路径会静默返回 OK**
+  （等于没扫就报通过，比漏报更危险）
+
+### 已知限制
+
+- **`--auth=trust`（本地免密）**：`memory/README.md` 已写明部署前必须改
+  `scram-sha-256` + 强密码 + 只监听 127.0.0.1
+- **记忆失败静默降级**：`read` 返回空结构、`write` 记 warning 不抛 ——
+  "记忆没生效"不会报错，只能靠日志发现
+- **facts 无自动化写入者**：只有显式 `remember()`，没有任何链路会在用户说话时
+  自动提取事实（刻意如此）
+
+---
+
 ## [0.4.0] — 2026-10-27
 
 ### 新增
