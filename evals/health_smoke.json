@@ -1,0 +1,112 @@
+[
+  {
+    "id": "G1",
+    "form": "guides",
+    "question": "成年人每天盐摄入量应该低于多少？",
+    "expected_source": [
+      "guides/盐钠钾与血压.md"
+    ],
+    "anchor": "每日盐 < 5 克，相当于每日钠 2 克",
+    "difficulty": "easy",
+    "note": "数值型，权威依据直答"
+  },
+  {
+    "id": "G2",
+    "form": "guides",
+    "question": "成年人蛋白质摄入应占每日总能量的多少比例？",
+    "expected_source": [
+      "guides/蛋白质摄入原则.md"
+    ],
+    "anchor": "占每日总能量的 10%–15%",
+    "difficulty": "easy",
+    "note": "数值型，注意与「运动人群可高于 15%」区分"
+  },
+  {
+    "id": "G3",
+    "form": "guides",
+    "question": "日常减盐可以从哪几个方面入手？",
+    "expected_source": [
+      "guides/盐钠钾与血压.md"
+    ],
+    "anchor": "限制烹调调味品 / 餐桌不放盐 / 限咸味零食 / 选低钠产品",
+    "difficulty": "medium",
+    "note": "要点列举型，需完整覆盖四条"
+  },
+  {
+    "id": "F1",
+    "form": "faq",
+    "question": "儿童肥胖症怎么办？",
+    "expected_source": [
+      "faq/真实提问问答_001.md"
+    ],
+    "anchor": "饮食和锻炼相结合",
+    "difficulty": "easy",
+    "note": "真实提问原句，直接命中"
+  },
+  {
+    "id": "F2",
+    "form": "faq",
+    "question": "长水痘可以洗澡吗？",
+    "expected_source": [
+      "faq/真实提问问答_001.md"
+    ],
+    "anchor": "可以洗澡，用温水，不用刺激性肥皂",
+    "difficulty": "medium",
+    "note": "与 G1/G2 同文件不同条目，测块级切分是否保留语义"
+  },
+  {
+    "id": "T1",
+    "form": "tables",
+    "question": "大白菜每 100 克含多少能量和蛋白质？",
+    "expected_source": [
+      "tables/薄荷食物库_白菜.md"
+    ],
+    "anchor": "能量 20 千卡、蛋白质 1.6 克",
+    "difficulty": "easy",
+    "note": "结构化数值查询，同文件有 20 种白菜变体"
+  },
+  {
+    "id": "T2",
+    "form": "tables",
+    "question": "炝汁白菜每 100 克含多少脂肪？",
+    "expected_source": [
+      "tables/薄荷食物库_白菜.md"
+    ],
+    "anchor": "脂肪 4.3 克",
+    "difficulty": "hard",
+    "note": "⚠️ 干扰项测试：同文件 20 个变体，「炝汁白菜」vs「大白菜」极易混"
+  },
+  {
+    "id": "D1",
+    "form": "dialogues",
+    "question": "宝宝拉肚子该怎么办？",
+    "expected_source": [
+      "dialogues/问诊对话_001.md"
+    ],
+    "anchor": "胃肠功能紊乱 / 消化不良 / 到医院复诊",
+    "difficulty": "medium",
+    "note": "对话形态，含【用户】【助手】结构"
+  },
+  {
+    "id": "B1",
+    "form": "cross",
+    "question": "吃太咸是不是对血压不好？",
+    "expected_source": [
+      "guides/盐钠钾与血压.md"
+    ],
+    "anchor": "钠与血压的关系",
+    "difficulty": "medium",
+    "note": "⚠️ 口语同义变体：与 G1 同源但问法完全不同，测语义泛化"
+  },
+  {
+    "id": "B2",
+    "form": "cross",
+    "question": "儿童每天盐摄入的上限是多少克？",
+    "expected_source": [
+      "guides/盐钠钾与血压.md"
+    ],
+    "anchor": "儿童上限更低，需按能量摄入估算，不能直接套用成人标准",
+    "difficulty": "hard",
+    "note": "⚠️ 长尾：语料**没有给具体数字**，只说明「需按能量估算」——测能否正确表达「无确切数值」而不是编造"
+  }
+]
