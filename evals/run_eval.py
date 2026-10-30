@@ -167,14 +167,23 @@ def main():
     )
     p.add_argument("--collection", default=COLLECTION,
                    help="要评测的集合名（默认 law_docs）；换集合用于切分/索引对比实验")
+    p.add_argument(
+        "--golden", default=str(GOLDEN),
+        help="金标集路径（默认 evals/golden_questions.json）。"
+             "分领域/分用途的题集用这个参数指定，例如 "
+             "--golden evals/health_smoke.json 跑健康域冒烟集。",
+    )
     args = p.parse_args()
     MIN_SCORE = args.min_score
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    golden_path = Path(args.golden)
+    if not golden_path.is_file():
+        p.error(f"--golden 指向的文件不存在：{golden_path}")
+    golden = json.loads(golden_path.read_text(encoding="utf-8"))
     mode = args.mode
     per_form = args.per_form
     collection = args.collection
 
-    print(f"golden set: {len(golden)} questions | collection={collection} "
+    print(f"golden set: {len(golden)} questions ({golden_path.name}) | collection={collection} "
           f"| top_k={TOP_K} min_score={MIN_SCORE} mode={mode}")
     print("-" * 96)
 
