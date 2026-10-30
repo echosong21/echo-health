@@ -225,3 +225,38 @@ def test_read_degrades_on_broken_store(mem_store):
         assert out == {"episodes": [], "facts": {}}
     finally:
         store._pool = original_pool
+
+
+# ── remember()：语义记忆的唯一写入口 ──────────────────────────
+def test_remember_writes_fact_readable_without_session(mem_store):
+    """`remember()` 写进的事实，不传 session_id 也能读到。
+
+    这是语义记忆的核心语义：**事实跟用户走，不跟会话走**。
+    换句话说，用户下次新开一个 session 问诊，过敏史仍然在。
+    """
+    import src.memory as mem_mod
+
+    store, _sid, uid = mem_store
+    ok = mem_mod.remember("allergies", "对花生过敏", evidence="用户自述", user_id=uid)
+    assert ok is True
+
+    out = store.read(session_id=None, user_id=uid)
+    assert out["episodes"] == [], "传 session_id=None 不该返回任何情景记忆"
+    assert out["facts"] == {"allergies": "对花生过敏"}
+
+
+def test_remember_returns_false_on_broken_store(monkeypatch):
+    """存储炸了返回 False，不抛。
+
+    与 `test_read_degrades_on_broken_store` 是同一条纪律：
+    **记忆是增强项，任何失败都不能把主链路拖死。**
+    """
+
+    class Boom:
+        def upsert_fact(self, *a, **kw):
+            raise RuntimeError("模拟 PG 挂掉")
+
+    monkeypatch.setattr("src.memory.get_store", lambda log=None: Boom())
+    import src.memory as mem_mod
+
+    assert mem_mod.remember("allergies", "花生") is False
