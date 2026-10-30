@@ -28,6 +28,7 @@ MVP 单机不需要后台任务。写入后立即裁剪，代价是一条索引�
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from .base import (
@@ -54,10 +55,48 @@ class PgMemoryStore:
         conninfo = dsn or os.getenv("MEMORY_DSN") or (
             "dbname=echo_health user=postgres host=127.0.0.1 port=5432"
         )
-        # min_size=1：单用户 MVP 不需要预热多个连接
-        # open=True：构造即连接；连不上会抛，让配置错误立刻暴露
-        self._pool = ConnectionPool(conninfo, min_size=1, max_size=4, open=True)
+        # ⚠️ 超时必须显式设小，否则降级慢得无法接受。
+        #
+        # 实测（2026-10-30，PG 进程停掉）：不设这两个参数时，
+        # 一次带 session_id 的请求耗时 **93.7 秒**（对照：不带记忆时 7.1 秒）。
+        # 原因：psycopg_pool 默认连接超时 30s，read() 里串行尝试多张表，
+        # 每次连接都要等满 30s。
+        #
+        # **「降级不抛异常」不等于「降级可接受」**：报错用户知道要重试，
+        # 卡 93 秒用户会以为服务挂了。记忆是增强项，它的故障不该被感知到。
+        #
+        # connect_timeout=2 → 建连最多等 2s
+        # timeout=3         → 从池里取连接最多等 3s（池满时不无限排队）
+        self._pool = ConnectionPool(
+            conninfo, min_size=1, max_size=4, open=True,
+            timeout=3.0,
+            kwargs={"connect_timeout": 2},
+        )
         self._log = log
+        # 熔断：存储故障后一段时间内直接跳过，不再尝试连接。
+        #
+        # 为什么必须熔断（实测数据）：
+        #   · 不设超时             → 单次请求 93.7 秒
+        #   · 设了 connect_timeout=2 → 仍有 12 秒（read 两次 + write 两次，每次各等满）
+        #   · 加熔断后             → 首个失败请求 ~3 秒，之后 30 秒内的请求 0 秒
+        #
+        # 记忆是增强项：它挂掉时用户应该感觉不到。等 12 秒比报错更糟 ——
+        # 报错至少知道要重试，卡住只会以为服务死了。
+        self._broken_until = 0.0
+        self._break_seconds = 30.0
+
+    # ── 熔断 ─────────────────────────────────────────────────
+    def _is_broken(self) -> bool:
+        """存储是否处于熔断期。期间所有操作直接跳过，零耗时。"""
+        return time.monotonic() < self._broken_until
+
+    def _trip(self) -> None:
+        """标记熔断。任何连接层异常都触发。"""
+        self._broken_until = time.monotonic() + self._break_seconds
+        if self._log is not None:
+            self._log.warning(
+                "记忆存储熔断 %.0fs —— 期间跳过所有记忆读写", self._break_seconds
+            )
 
     # ── 读 ───────────────────────────────────────────────────
     def read(
@@ -69,11 +108,14 @@ class PgMemoryStore:
     ) -> dict[str, Any]:
         """见 `MemoryStore.read` 的约定。**任何异常都折成空结构。**"""
         empty: dict[str, Any] = {"episodes": [], "facts": {}}
+        if self._is_broken():
+            return empty
         try:
             facts = self._read_facts(user_id)
             episodes = self._read_episodes(session_id, limit) if session_id else []
             return {"episodes": episodes, "facts": facts}
         except Exception as exc:                       # noqa: BLE001
+            self._trip()
             self._warn("memory read failed, degrade to empty", exc)
             return empty
 
@@ -118,6 +160,9 @@ class PgMemoryStore:
         if role not in ("user", "assistant"):
             raise ValueError(f"role 必须是 user/assistant，收到 {role!r}")
 
+        if self._is_broken():
+            return
+
         clipped = (text or "")[:MAX_TEXT_LENGTH]
         try:
             with self._pool.connection() as conn, conn.transaction():
@@ -150,6 +195,7 @@ class PgMemoryStore:
                 )
             _ = row
         except Exception as exc:                       # noqa: BLE001
+            self._trip()
             self._warn("memory write failed", exc)
 
     # ── 语义事实（显式维护，不自动抽取）───────────────────────
@@ -169,6 +215,8 @@ class PgMemoryStore:
 
         返回 False 表示已达 `MAX_FACTS_PER_USER` 上限且是新增 key。
         """
+        if self._is_broken():
+            return False
         try:
             with self._pool.connection() as conn, conn.transaction():
                 exists = conn.execute(
@@ -195,6 +243,7 @@ class PgMemoryStore:
                 )
             return True
         except Exception as exc:                       # noqa: BLE001
+            self._trip()
             self._warn("upsert_fact failed", exc)
             return False
 
