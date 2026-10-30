@@ -4,7 +4,7 @@
 
 `rag_query` 的依赖全部经 getter 取得（依赖注入改造的收益），
 所以 monkeypatch 掉 `get_emb` / `get_client` / `get_llm` / `get_domain` 即可离线跑。
-若这些仍是模块级对象，就必须起 Milvus 才能测 —— 那正是 R5 要解决的问题。
+若这些仍是模块级对象，就必须起 Milvus 才能测 —— 这正是本改造要解决的问题。
 
 **状态码的选择理由（见 `src/api.py` docstring）**
 

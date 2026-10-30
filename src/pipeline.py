@@ -222,7 +222,7 @@ def _save_turns(session_id: str | None, question: str, answer: str | None) -> No
 
 
 def _finalize_answer(answer: str | None) -> str | None:
-    """按领域配置注入免责声明（**强制注入**，Q41 硬要求）。
+    """按领域配置注入免责声明（**强制注入**，安全性要求）。
 
     - `disclaimers` 为空（如 law 领域）⇒ 原样返回，**行为与改造前完全一致**；
     - 非空（如 health 领域）⇒ 按 `position` 注入到答案前后。
