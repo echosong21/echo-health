@@ -1,4 +1,4 @@
-"""R3 的量化验收用例 —— Q40 ④ 判据。
+"""日志可串联性的量化验收用例。
 
 **这条用例断言什么**
 
@@ -7,7 +7,7 @@
 
 **为什么需要它**
 
-    R3 的原始判据是「日志能串起一次完整请求」—— 这句话**无法客观判定**：
+    原始判据是「日志能串起一次完整请求」—— 这句话**无法客观判定**：
     人眼觉得串起来了，换个人可能不这么看，评审时争不出结论。
 
     加上「trace_id 一致」+「逐行 JSON 可解析」两条硬断言后，
@@ -71,7 +71,7 @@ class _RecordingLogger:
 def test_trace_id_consistent_and_json_parsable(
     tmp_trace_file, fake_client, make_hits, fake_emb, health_domain, monkeypatch,
 ):
-    """Q40 ④：一次请求的全部日志行含同一 trace_id；traces.jsonl 每行可解析。"""
+    """一次请求的全部日志行含同一 trace_id；traces.jsonl 每行可解析。"""
     from src import pipeline as pl
 
     # ① 四个外部依赖全部换成替身（离线 + 确定性）
