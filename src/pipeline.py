@@ -195,28 +195,37 @@ def _build_prompt(system: str, contexts: str, question: str, memory_block: str =
     return f"{head}\n\n材料：\n{contexts}\n\n问题：{question}\n"
 
 
-def _load_memory_block(session_id: str | None) -> str:
-    """读记忆并渲染。**任何异常都折成空串** —— 记忆失败不能让问答失败。"""
-    if not session_id:
+def _load_memory_block(session_id: str | None, user_id: str = "") -> str:
+    """读记忆并渲染。**任何异常都折成空串** —— 记忆失败不能让问答失败。
+
+    `user_id` 为空时用 `DEFAULT_USER_ID`（单用户部署的常态）。
+    多用户场景必须传 —— 否则所有用户的语义事实会混在一起。
+    """
+    if not session_id and not user_id:
         return ""
     try:
-        from src.memory import get_store
+        from src.memory import DEFAULT_USER_ID, get_store
 
-        return _render_memory(get_store().read(session_id=session_id))
+        store = get_store()
+        mem = store.read(session_id=session_id, user_id=user_id or DEFAULT_USER_ID)
+        return _render_memory(mem)
     except Exception:                                   # noqa: BLE001
         return ""
 
 
-def _save_turns(session_id: str | None, question: str, answer: str | None) -> None:
+def _save_turns(
+    session_id: str | None, question: str, answer: str | None, user_id: str = ""
+) -> None:
     """把这一轮写进记忆。**失败静默**，且空回答不写（会污染下一轮上下文）。"""
     if not session_id or not answer:
         return
     try:
-        from src.memory import get_store
+        from src.memory import DEFAULT_USER_ID, get_store
 
         store = get_store()
-        store.write(session_id=session_id, role="user", text=question)
-        store.write(session_id=session_id, role="assistant", text=answer)
+        uid = user_id or DEFAULT_USER_ID
+        store.write(session_id=session_id, role="user", text=question, user_id=uid)
+        store.write(session_id=session_id, role="assistant", text=answer, user_id=uid)
     except Exception:                                   # noqa: BLE001
         pass
 
@@ -235,16 +244,17 @@ def _finalize_answer(answer: str | None) -> str | None:
     return "\n\n".join(parts) if (pre or app) else answer
 logger = observe.setup_logging()
 def rag_query(question: str, top_k: int = 3, min_score: float = 0.0,
-              session_id: str | None = None) -> dict:
+              session_id: str | None = None, user_id: str = "") -> dict:
     """min_score=0.0 ⇒ 不过滤，行为与改造前完全一致。
 
-    `session_id` 非空时才读写记忆；为 None 时**不碰记忆层**，
-    prompt 与改造前逐字节相同（见 `_build_prompt` 的说明）。
+    `session_id` 非空时才读写情景记忆；`user_id` 非空时读写语义事实。
+    两者都为 None / " " 时**不碰记忆层**，prompt 与改造前逐字节相同
+    （见 `_build_prompt` 的说明）。
     """
     stage_ms, contexts, usage, answer, raw = {}, [], None, None, []
     trace_id = observe.new_trace_id()
     status, error = "ok", None
-    memory_block = _load_memory_block(session_id)
+    memory_block = _load_memory_block(session_id, user_id)
     try:
         t0 = time.perf_counter()
         qvec = get_emb().embed_query(question)
@@ -278,7 +288,7 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0,
         logger.exception("trace=%s 失败：%s", trace_id, e)
         raise
     finally:
-        _save_turns(session_id, question, answer)
+        _save_turns(session_id, question, answer, user_id)
         cost = observe.calc_cost(usage)
         span = observe.build_retrieval_span(contexts, raw_n=len(raw))
         observe.write_trace({
@@ -301,19 +311,19 @@ def rag_query(question: str, top_k: int = 3, min_score: float = 0.0,
 
 def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                     top_k: int = 3, hybrid: bool = False,
-                    session_id: str | None = None) -> dict:
+                    session_id: str | None = None, user_id: str = "") -> dict:
     """按形态多路召回：每个形态各取 per_form 条，合并后统一过滤/生成。
 
     `hybrid=True` 时额外走 BM25 稀疏召回并做 RRF 融合。
     ⚠️ 默认 **False**：实测混合检索的排名质量不如纯向量多路，且延迟约 2.7 倍
     （详见 `DESIGN.md` 第 9 节）。
 
-    `session_id` 非空时才读写记忆；为 None 时 prompt 与改造前逐字节相同。
+    `session_id` / `user_id` 都为默认值时，prompt 与改造前逐字节相同。
     """
     stage_ms, contexts, usage, answer, raw = {}, [], None, None, []
     trace_id = observe.new_trace_id()
     status, error = "ok", None
-    memory_block = _load_memory_block(session_id)
+    memory_block = _load_memory_block(session_id, user_id)
     try:
         t0 = time.perf_counter()
         qvec = get_emb().embed_query(question)
@@ -356,7 +366,7 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
         logger.exception("trace=%s 失败：%s", trace_id, e)
         raise
     finally:
-        _save_turns(session_id, question, answer)
+        _save_turns(session_id, question, answer, user_id)
         cost = observe.calc_cost(usage)
         span = observe.build_retrieval_span(contexts, raw_n=len(raw))
         observe.write_trace({
