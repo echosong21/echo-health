@@ -1,7 +1,6 @@
-import threading
 """记忆层。
 
-**分层**（四档制 L1 的硬要求）：
+**分层**（能力要求）：
 
 | 层 | 存什么 | 失效策略 |
 |---|---|---|
@@ -30,6 +29,8 @@ from .base import (
     MAX_TURNS_PER_SESSION,
     MemoryStore,
 )
+
+import threading
 
 __all__ = [
     "DEFAULT_USER_ID",
