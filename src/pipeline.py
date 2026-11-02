@@ -418,6 +418,12 @@ def rag_query_planned(question: str, top_k: int = 3, per_task: int = 2,
     subtasks: list[str] = [question]
     per_task_n: dict[str, int] = {}
     memory_block = _load_memory_block(session_id, user_id)
+    # ⚠️ 计时必须按子任务分别收集，**不能**在 `retrieve_one` 里对共享的
+    # `stage_ms` 做 `+=` —— 那个函数是被 `ThreadPoolExecutor` 并发调用的，
+    # 累加会产生竞争，数字会变成「虚构的耗时」（实际踩过：两个 130ms 的
+    # embed 被记成 17.7 秒，差点据此得出「规划层慢一个数量级」的错误结论）。
+    # `list.append` 是原子操作，用它收集再汇总。
+    per_task_ms: list[tuple[str, float]] = []
 
     try:
         from src import planner
@@ -432,19 +438,20 @@ def rag_query_planned(question: str, top_k: int = 3, per_task: int = 2,
                 limit=per_task,
                 output_fields=["text", "source", "chunk_index"],
             )[0]
-            stage_ms.setdefault("embed_search_ms", 0.0)
-            stage_ms["embed_search_ms"] += round((time.perf_counter() - t0) * 1000, 1)
-            return [
+            docs = [
                 {"score": round(h["distance"], 4),
                  "source": h["entity"]["source"],
                  "chunk_index": h.get("id", 0),
                  "text": h["entity"]["text"]}
                 for h in hits
             ]
+            per_task_ms.append((sub, round((time.perf_counter() - t0) * 1000, 1)))
+            return docs
 
         t0 = time.perf_counter()
         planned = planner.plan_and_retrieve(question, retrieve_one, max_workers=3)
         stage_ms["plan_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        stage_ms["retrieve_per_task_ms"] = {k: v for k, v in per_task_ms}
         subtasks = planned["subtasks"]
         per_task_n = planned["per_task_n"]
         raw = planned["results"]
