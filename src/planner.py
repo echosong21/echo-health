@@ -68,14 +68,24 @@ def _split_by_conjunction(question: str) -> list[str]:
     两侧主语都是 3 字（高血压 / 糖尿病），阈值设 4 会把两侧都筛掉、
     退回成「不拆」。设 2 既能保住这个常见句式，又挡得住「和面」这种
     （拆出来第一段是空串，长度 0 被过滤后只剩 1 段 ⇒ 自动不拆）。
+
+    ⚠️ 超出上限时**合并多余项**而不是丢弃：用户问了三件事，只检索两件
+    等于漏答一件。合并后第二段是「糖尿病、高血脂分别该注意什么」——
+    向量检索对词组友好，能同时命中两类的文档。
     """
     for conj in CONJUNCTIONS:
         if conj not in question:
             continue
         parts = [_clean(p) for p in question.split(conj)]
         parts = [p for p in parts if len(p) >= 2]
-        if len(parts) >= 2:
-            return parts[:MAX_BY_CONJUNCTION]
+        if len(parts) < 2:
+            continue
+        if len(parts) > MAX_BY_CONJUNCTION:
+            # 保留前 N-1 段，其余用顿号合并进最后一段
+            head = parts[: MAX_BY_CONJUNCTION - 1]
+            tail = "、".join(parts[MAX_BY_CONJUNCTION - 1:])
+            parts = [*head, tail]
+        return parts
     return []
 
 
