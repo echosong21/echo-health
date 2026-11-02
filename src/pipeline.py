@@ -390,6 +390,125 @@ def rag_query_multi(question: str, per_form: int = 2, min_score: float = 0.0,
                        "output": _safe["output"].action if _safe["output"] else None}}
 
 
+def rag_query_planned(question: str, top_k: int = 3, per_task: int = 2,
+                      min_score: float = 0.0,
+                      session_id: str | None = None, user_id: str = "") -> dict:
+    """规划层：按语义子任务拆分 → 并行检索 → RRF 合并 → 生成。
+
+    **与 `rag_query_multi` 的区别（重要，别混）**
+
+        multi   ：按【数据形态】拆（guides / faq / tables / dialogues）
+        planned ：按【语义子问题】拆（「高血压」/「糖尿病该注意什么」）
+
+    两者**不重复**，理论上可叠加；本函数暂不叠加（保持单一变量，
+    便于单独评估规划层的收益）。
+
+    **为什么拆分是规则驱动**：见 `src/planner.py` 模块 docstring。
+
+    **回退行为**：拆不出 ≥2 个子任务时，`planner.split` 返回 `[原问题]`，
+    本函数会自动退化成单轮检索 —— **不报错、不多花一次 LLM 调用**。
+    """
+    stage_ms: dict[str, float] = {}
+    contexts: list[dict] = []
+    usage = None
+    answer = None
+    raw: list[dict] = []
+    trace_id = observe.new_trace_id()
+    status, error = "ok", None
+    subtasks: list[str] = [question]
+    per_task_n: dict[str, int] = {}
+    memory_block = _load_memory_block(session_id, user_id)
+
+    try:
+        from src import planner
+
+        def retrieve_one(sub: str) -> list[dict]:
+            """单个子任务的检索。**每次独立 embed** —— 子任务查询词不同，
+            复用同一 qvec 会检到同一批结果，规划就白做了。"""
+            t0 = time.perf_counter()
+            qvec = get_emb().embed_query(sub)
+            hits = get_client().search(
+                collection_name=get_collection(), data=[qvec],
+                limit=per_task,
+                output_fields=["text", "source", "chunk_index"],
+            )[0]
+            stage_ms.setdefault("embed_search_ms", 0.0)
+            stage_ms["embed_search_ms"] += round((time.perf_counter() - t0) * 1000, 1)
+            return [
+                {"score": round(h["distance"], 4),
+                 "source": h["entity"]["source"],
+                 "chunk_index": h.get("id", 0),
+                 "text": h["entity"]["text"]}
+                for h in hits
+            ]
+
+        t0 = time.perf_counter()
+        planned = planner.plan_and_retrieve(question, retrieve_one, max_workers=3)
+        stage_ms["plan_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        subtasks = planned["subtasks"]
+        per_task_n = planned["per_task_n"]
+        raw = planned["results"]
+
+        # min_score 过滤：**规划模式下 score 是 RRF 分数（0.01–0.03 量级）**，
+        # 与余弦分（0–1）不可比 —— 所以 min_score>0 时不能直接用它过滤
+        # （否则会把所有结果滤光）。这与 `retrieval.py` 混合模式的约束同源。
+        if min_score > 0 and raw and raw[0]["score"] <= 0.1:
+            logger.warning(
+                "trace=%s 规划模式下 score 是 RRF 分数，min_score=%.2f 不适用，已忽略",
+                trace_id, min_score,
+            )
+            contexts = list(raw)
+        else:
+            contexts = [c for c in raw if c["score"] >= min_score]
+
+        t0 = time.perf_counter()
+        if contexts:
+            materials = "\n\n".join(
+                f"[{i + 1}] 来源：{c['source']}\n{c['text']}"
+                for i, c in enumerate(contexts)
+            )
+            resp = get_llm().invoke(_build_prompt(
+                system=domain_mod.system_prompt(get_domain()),
+                contexts=materials, question=question, memory_block=memory_block))
+            answer, usage = resp.content, resp.usage_metadata
+        else:
+            answer = f"（{len(raw)} 条候选全部低于阈值 {min_score}，无材料可用）"
+        stage_ms["generate_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    except Exception as e:
+        status, error = "error", repr(e)
+        logger.exception("trace=%s 规划模式失败：%s", trace_id, e)
+        raise
+    finally:
+        _save_turns(session_id, question, answer, user_id)
+        cost = observe.calc_cost(usage)
+        span = observe.build_retrieval_span(contexts, raw_n=len(raw))
+        observe.write_trace({
+            "trace_id": trace_id,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "question": question,
+            "params": {"mode": "planned", "top_k": top_k,
+                       "per_task": per_task, "min_score": min_score,
+                       "n_subtasks": len(subtasks)},
+            "stage_ms": stage_ms, "usage": usage, "cost_cny": cost,
+            "retrieval": span, "status": status, "error": error,
+        })
+        logger.info(
+            "trace=%s status=%s mode=planned n_subtasks=%s min_score=%s "
+            "n_raw=%s n_kept=%s stage_ms=%s cost=%.6f元",
+            trace_id, status, len(subtasks), min_score,
+            len(raw), len(contexts), stage_ms, cost,
+        )
+
+    _safe = safety_rules.apply_all(question, _finalize_answer(answer), get_domain())
+    return {"answer": _safe["final_answer"], "contexts": contexts, "usage": usage,
+            "stage_ms": stage_ms, "mode": "planned",
+            "subtasks": subtasks, "per_task_n": per_task_n,
+            "top_k": top_k, "min_score": min_score, "n_raw": len(raw),
+            "safety": {"input": _safe["input"].action,
+                       "output": _safe["output"].action if _safe["output"] else None}}
+
+
 if __name__ == "__main__":
     # 只在 CLI 直接运行时改输出编码 —— 放在模块级会污染 import 本模块的进程。
     sys.stdout.reconfigure(encoding="utf-8")
