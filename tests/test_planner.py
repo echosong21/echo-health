@@ -61,6 +61,21 @@ def test_subtask_count_capped():
     assert len(planner.split(q)) <= planner.MAX_SUBTASKS
 
 
+def test_extra_items_merged_not_dropped():
+    """超出上限时**合并**多余项，不能丢弃。
+
+    用户问了三件事，只检索两件等于漏答一件。
+    合并后应得到「高血压 | 糖尿病、高血脂分别该注意什么」这样的两段，
+    第二段仍包含被合并进来的实体。
+    """
+    subs = planner.split("高血压、糖尿病、高血脂分别该注意什么")
+    assert len(subs) == 2
+    joined = "".join(subs)
+    # 三个实体都必须还在
+    for entity in ("高血压", "糖尿病", "高血脂"):
+        assert entity in joined, f"「{entity}」被丢弃了：{subs}"
+
+
 def test_split_returns_original_when_cannot_split():
     """拆不出 ≥2 段时必须**原样返回** [原问题]，不能返回空列表。
 
