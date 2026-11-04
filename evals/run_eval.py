@@ -213,6 +213,18 @@ def main():
         if r["verdict"] in ("hit", "partial"):
             by_form[r["form"]][0] += 1
 
+    # ★ 按难度分层：总命中率把「简单题答对」和「难题答对」混成一个数，
+    #   题集一改难度分布，历史数字就不可比。分层后能看出瓶颈在哪一档，
+    #   也能回答「这次涨分是因为题变简单了，还是检索真的变好了」。
+    #   ⚠️ 未标 difficulty 的题归到 None 组，不丢弃 —— 丢弃会让分母变小、
+    #   命中率虚高。
+    by_diff = defaultdict(lambda: [0, 0])
+    for r in results:
+        diff = r.get("difficulty")
+        by_diff[diff][1] += 1
+        if r["verdict"] in ("hit", "partial"):
+            by_diff[diff][0] += 1
+
     lat = [r["total_ms"] for r in results]
     verdicts = Counter(r["verdict"] for r in results)
 
@@ -236,6 +248,12 @@ def main():
         "verdicts": dict(verdicts),
         "overall_hit_rate": round(hit_like / total, 4),
         "by_form_hit_rate": {k: round(v[0] / v[1], 4) for k, v in sorted(by_form.items())},
+        # ★ 按难度分层：总命中率会把「简单题答对」和「难题答对」混成一个数，
+        #   无法判断题集变难了还是检索退化了。分层后才看得出瓶颈在哪一档。
+        "by_difficulty_hit_rate": {
+            k: round(v[0] / v[1], 4) for k, v in sorted(by_diff.items())
+        },
+        "by_difficulty_counts": {k: v[1] for k, v in sorted(by_diff.items())},
         "latency_ms": {"mean": round(sum(lat) / len(lat), 1), "max": round(max(lat), 1)},
         "top1_expected_rate": round(top1_ok / total, 4),
         "mrr": mrr,
@@ -247,6 +265,15 @@ def main():
     for form, rate in summary["by_form_hit_rate"].items():
         n_ok, n_all = by_form[form]
         print(f"  {form:<10} {n_ok}/{n_all} = {rate:.1%}")
+    print("分难度命中率:")
+    # 固定顺序打印，避免 dict 顺序随题集变化
+    for diff in ("easy", "medium", "hard", None):
+        if diff not in by_diff:
+            continue
+        n_ok, n_all = by_diff[diff]
+        label = diff or "(未标)"
+        bar = "█" * int(round(n_ok / n_all * 20)) if n_all else ""
+        print(f"  {label:<8} {n_ok}/{n_all} = {n_ok / n_all:.1%}  {bar}")
     print(f"延迟       : 均值 {summary['latency_ms']['mean']}ms / 最大 {summary['latency_ms']['max']}ms")
     print(f"★期待来源居首: {top1_ok}/{total} = {summary['top1_expected_rate']:.1%}    MRR = {mrr}")
     print(f"判定分布   : {dict(verdicts)}")

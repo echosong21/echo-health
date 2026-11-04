@@ -4,11 +4,12 @@
     "form": "guides",
     "question": "成年人每天盐摄入量应该低于多少？",
     "expected_source": [
-      "guides/盐钠钾与血压.md"
+      "guides/盐钠钾与血压.md",
+      "tables/盐钠换算对照.md"
     ],
     "anchor": "每日盐 < 5 克，相当于每日钠 2 克",
     "difficulty": "easy",
-    "note": "数值型，权威依据直答"
+    "note": "数值型，权威依据直答（2026-11-04 修：原只写 guides，但 tables/盐钠换算对照.md 同样明确写了成人每日上限，检索命中它不算错）"
   },
   {
     "id": "G2",
@@ -92,11 +93,12 @@
     "form": "cross",
     "question": "吃太咸是不是对血压不好？",
     "expected_source": [
-      "guides/盐钠钾与血压.md"
+      "guides/盐钠钾与血压.md",
+      "tables/盐钠换算对照.md"
     ],
     "anchor": "钠与血压的关系",
     "difficulty": "medium",
-    "note": "⚠️ 口语同义变体：与 G1 同源但问法完全不同，测语义泛化"
+    "note": "⚠️ 口语同义变体：与 G1 同源但问法完全不同，测语义泛化（2026-11-04 修：原只写 guides，但 tables/盐钠换算对照.md 同样明确写了成人每日上限，检索命中它不算错）"
   },
   {
     "id": "B2",
@@ -108,5 +110,116 @@
     "anchor": "儿童上限更低，需按能量摄入估算，不能直接套用成人标准",
     "difficulty": "hard",
     "note": "⚠️ 长尾：语料**没有给具体数字**，只说明「需按能量估算」——测能否正确表达「无确切数值」而不是编造"
+  },
+  {
+    "id": "G4",
+    "form": "guides",
+    "question": "全世界大约有多少成年人患有高血压？",
+    "expected_source": [
+      "guides/高血压_01.md"
+    ],
+    "anchor": "2024年，全世界估计有14亿30-79岁成年人患有高血压，占该年龄段总人口的33%",
+    "difficulty": "easy",
+    "note": "数值型，原文直答"
+  },
+  {
+    "id": "G5",
+    "form": "guides",
+    "question": "有多少高血压患者不知道自己患病？",
+    "expected_source": [
+      "guides/高血压_01.md"
+    ],
+    "anchor": "估计有6亿成年高血压患者（44%）不知道自己患有这种疾病",
+    "difficulty": "medium",
+    "note": "同一文件里的第二个统计数字，需与 G4 区分开（两者都很大，容易张冠李戴）"
+  },
+  {
+    "id": "G6",
+    "form": "guides",
+    "question": "腹泻在儿童死因中排第几？每年有多少 5 岁以下儿童因此死亡？",
+    "expected_source": [
+      "guides/腹泻病_01.md"
+    ],
+    "anchor": "腹泻病是1-59个月儿童死亡的第三大原因；每年约有443832名5岁以下儿童死于腹泻",
+    "difficulty": "hard",
+    "note": "两个数字在同一段但分开表述，且『1-59个月』与『5岁以下』是两个口径"
+  },
+  {
+    "id": "T3",
+    "form": "tables",
+    "question": "菠菜每 100 克含多少能量？",
+    "expected_source": [
+      "tables/薄荷食物库_菠菜.md"
+    ],
+    "anchor": "菠菜：每 100 克含 能量 28 千卡、蛋白质 2.6 克、脂肪 0.3 克、碳水化合物 4.5 克",
+    "difficulty": "easy",
+    "note": "单条记录直答；但该文件有 20 条菠菜制品，需定位到无前缀的『菠菜』那一条"
+  },
+  {
+    "id": "T4",
+    "form": "tables",
+    "question": "糙米和糙米（熟）每 100 克的热量分别是多少？",
+    "expected_source": [
+      "tables/薄荷食物库_糙米.md"
+    ],
+    "anchor": "糙米：每 100 克含 能量 348 千卡；糙米(熟)：每 100 克含 能量 111 千卡",
+    "difficulty": "hard",
+    "note": "需在同一文件里找到两个相似条目并分别报告；生米与熟饭差 3 倍，混淆会导致营养估算全错"
+  },
+  {
+    "id": "T5",
+    "form": "tables",
+    "question": "清炒菠菜和烧菠菜每 100 克的脂肪含量差多少？",
+    "expected_source": [
+      "tables/薄荷食物库_菠菜.md"
+    ],
+    "anchor": "清炒菠菜脂肪 1.93 克；烧菠菜脂肪 6.36 克；相差约 4.4 克",
+    "difficulty": "hard",
+    "note": "需要取两条数值并做减法；考的是『同一食材不同做法脂肪差很大』这个实际问题"
+  },
+  {
+    "id": "F3",
+    "form": "faq",
+    "question": "小儿晚上睡觉容易惊醒怎么办？",
+    "expected_source": [
+      "faq/真实提问问答_002.md"
+    ],
+    "anchor": "建议给孩子去医院查微量元素。看孩子是否有缺锌缺钙的情况",
+    "difficulty": "medium",
+    "note": "问答对里原样有这条问题，考的是能否定位到对应答案组"
+  },
+  {
+    "id": "F4",
+    "form": "faq",
+    "question": "婴儿吃奶快入睡时头和手晃动是什么原因？",
+    "expected_source": [
+      "faq/真实提问问答_002.md"
+    ],
+    "anchor": "偶尔摇晃是婴儿睡觉或吃牛奶时常见的现象；当婴儿缺钙时神经系统的兴奋性会增加",
+    "difficulty": "hard",
+    "note": "同一文件里另有『小儿晚上睡觉易惊醒』，两问主题相近容易检错；且答案含两个并列原因"
+  },
+  {
+    "id": "B3",
+    "form": "cross",
+    "question": "高血压的诊断标准是多少？哪些可改变的风险因素会导致高血压？",
+    "expected_source": [
+      "guides/高血压_01.md"
+    ],
+    "anchor": "收缩压≥140 mmHg 和/或 舒张压≥90 mmHg 即可诊断；可改变风险因素包括盐摄入过多、缺乏身体活动、吸烟、饮酒、超重",
+    "difficulty": "medium",
+    "note": "同文件两处信息：诊断标准与风险因素列表，需分别取"
+  },
+  {
+    "id": "B4",
+    "form": "cross",
+    "question": "菠菜每 100 克的能量是多少？成年人每天盐摄入上限是多少克？",
+    "expected_source": [
+      "tables/薄荷食物库_菠菜.md",
+      "guides/盐钠钾与血压.md"
+    ],
+    "anchor": "菠菜 28 千卡/100 克；每日盐 < 5 克（钠 2 克）",
+    "difficulty": "hard",
+    "note": "真·跨文件：一个数值在 tables，一个上限在 guides，必须两路都命中才算完整"
   }
 ]

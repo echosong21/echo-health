@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-04",
+  "params": {
+    "top_k": 5,
+    "min_score": 0.0,
+    "mode": "multi",
+    "per_form": 2,
+    "embed_model": "qwen3.7-text-embedding-flash",
+    "collection": "echo_health_v2"
+  },
+  "n_questions": 20,
+  "verdicts": {
+    "partial": 3,
+    "miss": 8,
+    "hit": 9
+  },
+  "overall_hit_rate": 0.6,
+  "by_form_hit_rate": {
+    "cross": 0.5,
+    "dialogues": 0.0,
+    "faq": 1.0,
+    "guides": 0.1667,
+    "tables": 1.0
+  },
+  "by_difficulty_hit_rate": {
+    "easy": 0.6667,
+    "hard": 0.7143,
+    "medium": 0.4286
+  },
+  "by_difficulty_counts": {
+    "easy": 6,
+    "hard": 7,
+    "medium": 7
+  },
+  "latency_ms": {
+    "mean": 248.3,
+    "max": 676.9
+  },
+  "top1_expected_rate": 0.55,
+  "mrr": 0.9375
+}
