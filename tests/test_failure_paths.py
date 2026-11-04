@@ -120,11 +120,23 @@ def test_empty_result_is_not_an_error(client, wire):
 
 
 # ── ② 超时 ──────────────────────────────────────────────────
-def test_timeout_surfaces_as_500(client, wire):
-    """依赖超时必须让调用方知道 ⇒ 500，而不是空结果冒充成功。"""
+def test_timeout_surfaces_as_503(client, wire):
+    """依赖超时必须让调用方知道，**且要说清是「依赖的错」不是「我的 bug」**。
+
+    ⚠️ **契约变更（2026-11-04）**：原断言是 500。
+    统一入口 v0 引入依赖分级后，语义改成分开：
+
+        503 = 依赖不可用（别人的错）⇒ 调用方应稍后重试
+        500 = 内部错误（我的 bug）  ⇒ 调用方应报 issue
+
+    `TimeoutError` / `ConnectionError` / `OSError` 归第一类 —— 它们是连接层
+    故障，不是本服务的逻辑错误。这条测试的核心意图（**不能吞掉错误、
+    不能拿空结果冒充成功**）没有变，变的只是「用哪个码表达」。
+    """
     wire(_TimeoutClient())
     r = client.post("/query", json={"question": "米饭多少热量"})
-    assert r.status_code == 500
+    assert r.status_code == 503, f"依赖超时应回 503（依赖不可用），实际 {r.status_code}"
+    assert "依赖不可用" in r.json()["detail"]
     assert "TimeoutError" in r.json()["detail"]
 
 
