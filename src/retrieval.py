@@ -72,27 +72,24 @@ def _form_keys() -> list[str]:
 ROUTE_WEIGHTS = {"dense": 1.0, "sparse": 1.0}
 
 
-def _to_raw(hits: list) -> list[dict]:
-    """把 Milvus 返回的命中统一成内部结构。"""
-    return [
-        {
-            "score": round(h["distance"], 4),
-            "source": h["entity"]["source"],
-            "chunk_index": h["entity"]["chunk_index"],
-            "text": h["entity"]["text"],
-        }
-        for h in hits
-    ]
+# ── 原语来自 domain-rag-core；本仓保留「薄包装」───────────────────
+#
+# **为什么是包装而不是让调用方直接调 core**：本仓的调用方（`pipeline.py`、
+# `run_evals.py`、`tests/`）用的是 `retrieve_dense_single` / `retrieve_dense_multi`
+# 这两个名字，而 `retrieve_dense_multi` 的 `forms` 默认值来自本仓的领域配置
+# （core 里 `forms` 是**必填** —— 那是刻意的，见 core 的说明）。
+#
+# 「默认从领域配置取形态」**是本仓的事**，不该进公共库。所以保留这一层：
+# 它只有几行，职责单一 —— 补上默认值，然后把分组结果摊平。
+from domain_rag_core import flatten_by_form  # noqa: E402
+from domain_rag_core import retrieve_multi as _core_retrieve_multi  # noqa: E402
+from domain_rag_core import retrieve_single as _core_retrieve_single  # noqa: E402
+from domain_rag_core import to_raw as _to_raw  # noqa: E402,F401
 
 
 def retrieve_dense_single(client, qvec, collection: str, top_k: int) -> tuple[list[dict], float]:
     """单路向量召回（与改造前行为一致，用于保持基线可比）。"""
-    t0 = time.perf_counter()
-    hits = client.search(
-        collection_name=collection, data=[qvec], limit=top_k,
-        output_fields=["text", "source", "chunk_index"],
-    )[0]
-    return _to_raw(hits), round((time.perf_counter() - t0) * 1000, 1)
+    return _core_retrieve_single(client, qvec, collection, top_k)
 
 
 def retrieve_dense_multi(
@@ -105,29 +102,16 @@ def retrieve_dense_multi(
     语义完全不变（仍是每形态各取 per_form 条），只是不再等待彼此。
 
     返回 `(merged, per_form_ms, wall_ms)`。
+
+    ⚠️ **不吞单路失败**（core 的默认 `on_error="raise"`）：本仓一直如此，
+    `test_failure_paths.py` 里有一条专门测这个。要改这个行为得单独讨论 ——
+    不能因为「换个实现」就顺手变了。
     """
     forms = _form_keys() if forms is None else forms
-
-    def one(form: str):
-        t = time.perf_counter()
-        hits = client.search(
-            collection_name=collection, data=[qvec], limit=per_form,
-            filter=f'source like "{form}/%"',
-            output_fields=["text", "source", "chunk_index"],
-        )[0]
-        return form, _to_raw(hits), round((time.perf_counter() - t) * 1000, 1)
-
-    t0 = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = list(pool.map(one, forms))
-    wall_ms = round((time.perf_counter() - t0) * 1000, 1)
-
-    merged: list[dict] = []
-    per_form_ms: dict[str, float] = {}
-    for form, raw, ms in results:
-        per_form_ms[form] = ms
-        merged.extend(raw)
-    return merged, per_form_ms, wall_ms
+    route_docs, per_form_ms, wall_ms = _core_retrieve_multi(
+        client, qvec, collection, per_form, forms, max_workers=max_workers,
+    )
+    return flatten_by_form(route_docs, forms), per_form_ms, wall_ms
 
 
 def retrieve_hybrid(

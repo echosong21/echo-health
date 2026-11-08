@@ -33,73 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(encoding="utf-8")
 
-# RRF 的平滑常数。取值越大，排名靠后的候选获得的权重越接近，融合越"平"。
-# 60 是论文中的常用默认值。
-RRF_K = 60
-
-
-def doc_key(doc: dict) -> tuple:
-    """候选块的唯一标识。
-
-    用 `(source, chunk_index)` 而不是 text：两条召回路径都能提供这两个字段
-    （向量库里存了，BM25 的 items 里也有），而文本比较代价高。
-    """
-    return (doc.get("source"), doc.get("chunk_index"))
-
-
-def _route_weight(route: str, weights: dict[str, float] | None) -> float:
-    """按路名取权重，支持前缀匹配（`"dense"` 可匹配 `"dense:faq"`）。
-
-    ⚠️ 加权的理由（实测）：dense 与 sparse 的**质量并不对等**。等权 RRF 时，
-    sparse 把若干 dense 的正确结果挤到了后面（实测 MRR 0.8284 → 0.7737）。
-    权重的作用就是把"哪一路更可信"这个先验显式化，而不是假装两路等价。
-    """
-    if not weights:
-        return 1.0
-    if route in weights:
-        return weights[route]
-    for prefix, w in weights.items():
-        if route.startswith(prefix + ":") or route == prefix:
-            return w
-    return 1.0
-
-
-def rrf_fuse(
-    route_docs: dict[str, list[dict]],
-    k: int = RRF_K,
-    weights: dict[str, float] | None = None,
-) -> list[dict]:
-    """Reciprocal Rank Fusion（支持按路加权）。
-
-    参数 `route_docs`：`{"路名": [候选, ...], ...}`，每路的候选按**该路自己的排序**给出。
-    `weights`：可选，按路名（或前缀）指定权重，如 `{"dense": 2.0, "sparse": 1.0}`。
-
-    返回：融合后的列表（按 RRF 分数降序），每项含
-        `key` / `doc` / `score` / `ranks`（这一项在各路里的名次，便于解释"是谁把它顶上来的"）
-    """
-    scores: dict[tuple, float] = {}
-    ranks: dict[tuple, dict[str, int]] = {}
-    docs: dict[tuple, dict] = {}
-
-    for route, items in route_docs.items():
-        w = _route_weight(route, weights)
-        for rank, doc in enumerate(items, start=1):
-            key = doc_key(doc)
-            scores[key] = scores.get(key, 0.0) + w / (k + rank)
-            ranks.setdefault(key, {})[route] = rank
-            docs.setdefault(key, doc)
-
-    fused = [
-        {
-            "key": key,
-            "doc": docs[key],
-            "score": round(score, 6),
-            "ranks": ranks[key],
-        }
-        for key, score in scores.items()
-    ]
-    fused.sort(key=lambda x: x["score"], reverse=True)
-    return fused
+from domain_rag_core import RRF_K, doc_key, rrf_fuse, route_weight  # noqa: E402,F401
 
 
 def _minmax(values: list[float]) -> list[float]:
