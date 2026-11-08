@@ -236,7 +236,11 @@ def test_tools_endpoint_lists_all(client, patch_all):
     r = client.get("/tools")
     assert r.status_code == 200
     body = r.json()
-    assert body["count"] == len(api_mod.TOOLS) == 7
+    # 精确数量是有意的：`/tools` 的 count 必须与镜像长度、与 MCP 注册表三方一致。
+    # 「镜像 == 注册表」由 `test_tools_mirror_matches_registry` 守卫；
+    # 这里的数字是**端点契约**，加删工具时三处要同时改 ——
+    # 那点麻烦换来的是「不会悄悄少一个工具」（`== len(...)` 单独用挡不住这个）。
+    assert body["count"] == len(api_mod.TOOLS) == 12
     names = [t["name"] for t in body["tools"]]
     assert "common.discovery.health_check" in names
     assert len(set(names)) == len(names), "工具名不能重复"

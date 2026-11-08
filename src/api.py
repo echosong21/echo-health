@@ -92,6 +92,36 @@ TOOLS = [
         "brief": "检查向量库 / embedding / 重排服务与熔断器的当前状态",
     },
     {
+        "name": "common.knowledge.search",
+        "scope": "common.knowledge",
+        "side_effect": "read",
+        "brief": "按语义在指定领域内检索，返回片段列表（不生成回答）",
+    },
+    {
+        "name": "common.knowledge.search_multi",
+        "scope": "common.knowledge",
+        "side_effect": "read",
+        "brief": "按数据形态并发召回多路再 RRF 融合，返回统一排序的片段列表",
+    },
+    {
+        "name": "common.knowledge.answer",
+        "scope": "common.knowledge",
+        "side_effect": "read",
+        "brief": "检索 + 生成 + 安全闸一体的回答；命中禁用断言则整条拒答",
+    },
+    {
+        "name": "common.knowledge.answer_planned",
+        "scope": "common.knowledge",
+        "side_effect": "read",
+        "brief": "先判断是否多焦点，是则拆子任务分别检索再融合生成",
+    },
+    {
+        "name": "common.knowledge.explain",
+        "scope": "common.knowledge",
+        "side_effect": "read",
+        "brief": "解释一次检索的决策：拆了哪些子任务、每路召回什么、融合后谁被顶上来",
+    },
+    {
         "name": "common.ops.get_index_status",
         "scope": "common.ops.read",
         "side_effect": "read",
