@@ -178,10 +178,43 @@ flowchart TB
 
 ## 六、快速开始
 
+### 6.0 ⚠️ 先装一个不在 PyPI 上的依赖
+
+`src/retrieval.py` 与 `src/fusion.py` 的**原语**（命中摊平、单路/多路召回、RRF 融合）
+已抽成一个独立包 `domain-rag-core`。它是本仓的硬依赖：
+
+```bash
+# 假设 domain-rag-core 与本仓同级
+pip install -e ../domain-rag-core
+```
+
+验证：
+
+```bash
+python -c "import domain_rag_core; print(domain_rag_core.__version__)"
+```
+
+**⚠️ 这个包没有发布到 PyPI，也不在本仓内。** 如果你只 clone 了本仓：
+
+```bash
+python -c "import src.retrieval"
+# ModuleNotFoundError: No module named 'domain_rag_core'
+```
+
+**⇒ 这不是代码缺陷，是缺了一个依赖。** 本仓需要你另外拿到 `domain-rag-core`。
+
+**为什么当初要抽成独立包**：同一套「召回 + 融合」原语在两个项目里各有一份副本，
+抽取时发现了**三处已经分叉的语义**（单路是否支持形态过滤、多路返回分组还是扁平、
+单路失败是丢还是抛）。细节见 `domain-rag-core` 的 README。
+
+**为什么不把它 vendored 进本仓**：那样就回到「两份副本」，只是换了个位置。
+
 ```bash
 # 1. 依赖
 pip install -r requirements.txt
+```
 
+```bash
 # 2. 环境变量
 cp .env.example .env      # 填写密钥与向量库地址
 
