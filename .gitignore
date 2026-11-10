@@ -20,7 +20,9 @@ jieba.cache
 # IDE / OS
 .idea/
 .vscode/
-.DS_Store# pytest 运行时会创建的临时缓存目录（沙箱下可能无法删除，用忽略处理）
+.DS_Store
+
+# pytest 运行时会创建的临时缓存目录（沙箱下可能无法删除，用忽略处理）
 pytest-cache-files-*/
 # 测试用的项目内临时目录（避开 %TEMP% 的 ACL 锁定问题，见 tests/conftest.py）
 .pytest_tmp/
@@ -30,3 +32,10 @@ _sources/
 
 # 下载暂存区（原始数据，转换后不保留）
 _staging/
+
+# 开发笔记与临时草稿（内部材料，不进公开仓）
+# ⚠️ 放在建目录**之前**加 —— 否则先建了目录，`git add -A` 会把它一起带进去
+_notes/
+
+# 投递材料（个人求职材料，不进公开仓）
+_投递/

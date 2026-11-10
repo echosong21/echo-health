@@ -39,6 +39,7 @@ EchoHealth 的目标是把这三步做成一条链路。**约束是硬条件，�
 |---|:--:|---|
 | 领域配置化（换领域只改 yaml） | ✅ | `domains/health.yaml`、`domains/law.yaml` 共用同一套能力层 |
 | 多形态检索 + 融合 | ✅ | 4 形态并发召回，1114 块索引 |
+| **检索原语已抽成公共库** | ✅ | `domain-rag-core`（同级仓，非 PyPI）。命中摊平 / 单路与多路召回 / RRF 融合都在那里，本仓只保留「补默认值 + 摊平」的薄包装，见第六节 6.0 |
 | 三层安全闸 | ✅ | `src/safety/rules.py`，见第四节 |
 | 检索评测 | ✅ | `evals/` 有金标集与 runner，报告指标含 hit rate / top-1 / MRR |
 | 增量建库 | ✅ | `scripts/build_index.py`，按领域配置读取切分参数 |
